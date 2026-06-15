@@ -1,0 +1,251 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- if eq .Values.fuse.type "daemonSet" }}
+
+{{- $fullName := include "common.fullname" . }}
+{{- $alluxioFuseConfDir := include "common.basePath" "/conf" }}
+{{- $alluxioFuseLogDir := include "common.basePath" "/logs" }}
+{{- $fdbDirPath := include "common.basePath" "/fdb" }}
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $fullName }}-fuse
+  labels:
+    {{- include "common.labels" (dict "component" "fuse" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "common.matchLabels" (dict "component" "fuse" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 6 }}
+      {{- if and (.Values.usePodLabelsInSelector) (.Values.podLabels) }}
+      {{- toYaml .Values.podLabels | trim | nindent 6 }}
+      {{- end }}
+  {{- if .Values.fuse.updateStrategy }}
+  updateStrategy: 
+    {{- toYaml .Values.fuse.updateStrategy | trim | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "common.labels" (dict "component" "fuse" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 8 }}
+        {{- if .Values.podLabels }}
+        {{- toYaml .Values.podLabels | trim | nindent 8 }}
+        {{- end }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.fuse.ports.web }}"
+        prometheus.io/path: "/metrics"
+        {{- if .Values.fuse.podAnnotations }}
+        {{- toYaml .Values.fuse.podAnnotations | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml .Values.hostAliases | trim | nindent 8 }}
+      {{- end }}
+      hostNetwork: {{ .Values.hostNetwork }}
+      dnsPolicy: {{ .Values.dnsPolicy | default (.Values.hostNetwork | ternary "ClusterFirstWithHostNet" "ClusterFirst") }}
+      nodeSelector:
+        {{- if .Values.fuse.nodeSelector }}
+        {{- toYaml .Values.fuse.nodeSelector | trim | nindent 8  }}
+        {{- end }}
+        {{- if .Values.nodeSelector }}
+        {{- toYaml .Values.nodeSelector | trim | nindent 8  }}
+        {{- end }}
+      affinity:
+        {{- if .Values.fuse.affinity }}
+        {{- toYaml .Values.fuse.affinity | nindent 8 }}
+        {{- end }}
+      tolerations:
+        {{- if .Values.fuse.tolerations }}
+        {{- toYaml .Values.fuse.tolerations | trim | nindent 8  }}
+        {{- end }}
+        {{- if .Values.tolerations }}
+        {{- toYaml .Values.tolerations | trim | nindent 8  }}
+        {{- end }}
+      {{- if .Values.fuse.priorityClassName }}
+      priorityClassName: {{ .Values.fuse.priorityClassName }}
+      {{- end }}
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      {{- if .Values.serviceAccountName }}
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- end }}
+      {{- if .Values.imagePullSecrets }}
+      {{- include "common.imagePullSecrets" .Values | nindent 6 }}
+      {{- end }}
+      initContainers:
+        - name: umount-path
+          image: {{ .Values.image }}:{{ .Values.imageTag }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            privileged: true # required by bidirectional mount
+          {{- if .Values.fuse.resources }}
+          resources:
+            {{- toYaml .Values.fuse.resources | trim | nindent 12 }}
+          {{- end }}
+          command: [ "/bin/sh", "-c" ]
+          args:
+            - umount -l {{ .Values.fuse.hostPathForMount }} || true
+          volumeMounts:
+            - name: alluxio-fuse-mount
+              mountPath: {{ .Values.fuse.hostPathForMount | dir }}
+              mountPropagation: Bidirectional
+        - name: create-alluxio-fuse-dir
+          image: {{ .Values.image }}:{{ .Values.imageTag }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- if .Values.fuse.resources }}
+          resources:
+            {{- toYaml .Values.fuse.resources | trim | nindent 12 }}
+          {{- end }}
+          command: [ "mkdir", "-p", {{ .Values.fuse.hostPathForMount }}]
+          volumeMounts:
+            - name: alluxio-fuse-mount
+              mountPath: {{ .Values.fuse.hostPathForMount | dir }}
+        {{- if .Values.etcd.enabled }}
+        - name: wait-etcd
+          image: {{ .Values.image }}:{{ .Values.imageTag }}
+          {{- if .Values.fuse.resources }}
+          resources:
+            {{- toYaml .Values.fuse.resources | trim | nindent 12 }}
+          {{- end }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - until nc -z {{ .Release.Name }}-etcd.{{ .Release.Namespace }} 2379;
+              do sleep 2;
+              done
+        {{- end }}
+        {{- if .Values.fdb.enabled }}
+        - name: wait-fdb
+          image: {{ .Values.image }}:{{ .Values.imageTag }}
+          {{- if .Values.fuse.resources }}
+          resources:
+            {{- toYaml .Values.fuse.resources | trim | nindent 12 }}
+          {{- end }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - until [ -f {{ $fdbDirPath }}/fdb.cluster ];
+              do sleep 2;
+              done
+          volumeMounts:
+            - name: fdb-config
+              mountPath: {{ $fdbDirPath }}
+              readOnly: true
+        {{- end }}
+      containers:
+        - name: alluxio-fuse
+          image: {{ .Values.image }}:{{ .Values.imageTag }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- if .Values.fuse.resources }}
+          resources:
+            {{- toYaml .Values.fuse.resources | trim | nindent 12 }}
+          {{- end }}
+          command: ["tini", "-g", "--"]
+          args:
+            - /bin/bash
+            - -c
+            - |
+              umount -l {{ .Values.fuse.hostPathForMount }}
+              exec /opt/alluxio/integration/fuse/bin/alluxio-fuse mount -f {{ .Values.fuse.hostPathForMount }} {{- range .Values.fuse.mountOptions }} -o {{ . }} {{- end }}
+          env:
+            - name: FUSE_IDENTIFIER
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ALLUXIO_NODE_LABEL
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- range $key, $value := .Values.fuse.env }}
+            - name: "{{ $key }}"
+              value: "{{ $value }}"
+            {{- end }}
+          securityContext:
+            privileged: true # required by bidirectional mount
+          lifecycle:
+            preStop:
+              exec:
+                command: ["umount", {{ .Values.fuse.hostPathForMount }}]
+          volumeMounts:
+            - name: alluxio-fuse-mount
+              mountPath: {{ .Values.fuse.hostPathForMount | dir }}
+              mountPropagation: Bidirectional
+            - name: configs
+              mountPath: {{ $alluxioFuseConfDir }}
+            {{- if .Values.logPersistence }}
+            - name: logs
+              mountPath: {{ $alluxioFuseLogDir }}
+            {{- end }}
+            {{- if .Values.fdb.enabled }}
+            - name: fdb-config
+              mountPath: {{ $fdbDirPath }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.secrets }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.secrets.fuse "readOnly" true) | indent 12 }}
+            {{- end }}
+            {{- if .Values.configMaps }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.configMaps.fuse "readOnly" true) | indent 12 }}
+            {{- end }}
+            {{- if .Values.hostPaths }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.hostPaths.fuse "readOnly" false) | indent 12 }}
+            {{- end }}
+            {{- if .Values.pvcMounts }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.pvcMounts.fuse "readOnly" false) | indent 12 }}
+            {{- end }}
+      restartPolicy: Always
+      volumes:
+        - name: alluxio-fuse-mount
+          hostPath:
+            path: {{ .Values.fuse.hostPathForMount | dir }}
+            type: DirectoryOrCreate
+        - name: configs
+          configMap:
+            name: {{ $fullName }}-alluxio-conf
+        {{- if .Values.logPersistence }}
+        - name: logs
+          {{- if eq .Values.fuse.log.type "hostPath" }}
+          hostPath:
+            path: {{ .Values.fuse.log.hostPath }}
+            type: DirectoryOrCreate
+          {{- else if eq .Values.fuse.log.type "persistentVolumeClaim" }}
+          persistentVolumeClaim:
+            claimName: {{ include "alluxio.getPvcName" (dict "prefix" (include "common.fullname" .) "component" "fuse-log") }}
+          {{- else if eq .Values.fuse.log.type "emptyDir" }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- if .Values.fdb.enabled }}
+        - name: fdb-config
+          configMap:
+            name: {{ include "common.fullname" . }}-fdb-meta-config
+            items:
+              - key: cluster-file
+                path: fdb.cluster
+        {{- end}}
+        {{- if .Values.secrets }}
+        {{- include "common.secretVolumes" .Values.secrets.fuse | indent 8 }}
+        {{- end }}
+        {{- if .Values.configMaps }}
+        {{- include "common.configMapVolumes" .Values.configMaps.fuse | indent 8 }}
+        {{- end }}
+        {{- if .Values.hostPaths }}
+        {{- include "common.hostPathVolumes" .Values.hostPaths.fuse | indent 8 }}
+        {{- end }}
+        {{- if .Values.pvcMounts }}
+        {{- include "common.pvcVolumes" .Values.pvcMounts.fuse | indent 8 }}
+        {{- end }}
+{{- end }}

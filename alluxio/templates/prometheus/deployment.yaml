@@ -1,0 +1,133 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $fullName := include "common.fullname" . }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}-prometheus
+  labels:
+    {{- include "common.labels" (dict "component" "prometheus" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "common.matchLabels" (dict "component" "prometheus" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "common.labels" (dict "component" "prometheus" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 8 }}
+        {{- if .Values.podLabels }}
+        {{- toYaml .Values.podLabels | trim | nindent 8 }}
+        {{- end }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.prometheus.ports.web }}"
+        prometheus.io/path: "/metrics"
+        {{- if .Values.prometheus.podAnnotations }}
+        {{- toYaml .Values.prometheus.podAnnotations | nindent 8 }}
+        {{- end }}
+    spec:
+      hostPID: {{ .Values.prometheus.hostPID }}
+      hostNetwork: {{ include "alluxio.hostNetwork" (dict "top" . "component" "prometheus") }}
+      dnsPolicy: {{ include "alluxio.dnsPolicy" (dict "top" . "component" "prometheus") }}
+      {{- if .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml .Values.hostAliases | trim | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- if .Values.prometheus.nodeSelector }}
+        {{- toYaml .Values.prometheus.nodeSelector | trim | nindent 8 }}
+        {{- end }}
+        {{- if .Values.nodeSelector }}
+        {{- toYaml .Values.nodeSelector | trim | nindent 8 }}
+        {{- end }}
+      affinity:
+        {{- if .Values.prometheus.affinity }}
+        {{- toYaml .Values.prometheus.affinity | nindent 8 }}
+        {{- end }}
+      tolerations:
+        {{- if .Values.prometheus.tolerations }}
+        {{- toYaml .Values.prometheus.tolerations | trim | nindent 8 }}
+        {{- end }}
+        {{- if .Values.tolerations }}
+        {{- toYaml .Values.tolerations | trim | nindent 8 }}
+        {{- end }}
+      {{- if .Values.prometheus.priorityClassName }}
+      priorityClassName: {{ .Values.prometheus.priorityClassName }}
+      {{- end }}
+      serviceAccountName: {{ $fullName }}-prometheus
+      {{- if .Values.imagePullSecrets }}
+      {{- include "common.imagePullSecrets" .Values | nindent 6 }}
+      {{- end }}
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+        - image: {{ .Values.prometheus.image }}:{{ .Values.prometheus.imageTag }}
+          imagePullPolicy: {{ .Values.prometheus.imagePullPolicy }}
+          name: prometheus
+          resources:
+            {{- toYaml .Values.prometheus.resources | trim | nindent 12 }}
+          command:
+            - "/bin/prometheus"
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yaml" # the prometheus config file path
+            - "--storage.tsdb.path=/prometheus" # Where prometheus writes its database.
+            - "--storage.tsdb.retention={{ .Values.prometheus.retention }}" # When to remove old data
+            - "--web.listen-address=:{{ .Values.prometheus.ports.web }}" # Listen address
+          env:
+            {{- range $key, $value := .Values.prometheus.env }}
+            - name: "{{ $key }}"
+              value: "{{ $value }}"
+            {{- end }}
+          ports:
+            - containerPort: {{ .Values.prometheus.ports.web }}
+              protocol: TCP
+          volumeMounts:
+          - mountPath: "/prometheus"
+            name: data
+          {{- if .Values.prometheus.prometheusConfig }}
+            {{- range .Values.prometheus.prometheusConfig }}
+          - name: conf-{{ .name }}
+            mountPath: "{{ .path }}"
+            {{- end }}
+          {{- end }}
+          {{- if and .Values.prometheus.etcdTls.enabled .Values.prometheus.etcdTls.secretName }}
+          - name: prometheus-etcd-tls
+            mountPath: {{ .Values.prometheus.etcdTls.certDir }}
+          {{- end }}
+      volumes:
+        - name: data
+        {{- if eq .Values.prometheus.persistence.type "persistentVolumeClaim" }}
+          persistentVolumeClaim:
+            claimName: {{ $fullName }}-prometheus
+        {{- else if eq .Values.prometheus.persistence.type "hostPath" }}
+          hostPath:
+            path: {{ .Values.prometheus.persistence.hostPath }}
+            type: DirectoryOrCreate
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+        {{-  if .Values.prometheus.prometheusConfig }}
+          {{- range .Values.prometheus.prometheusConfig }}
+        - name: conf-{{ .name }}
+          configMap:
+            name: {{ $fullName }}-{{ .name }}
+          {{- end }}
+        {{- end }}
+        {{- if and .Values.prometheus.etcdTls.enabled .Values.prometheus.etcdTls.secretName }}
+        - name: prometheus-etcd-tls
+          secret:
+            secretName: {{ .Values.prometheus.etcdTls.secretName }}
+        {{- end }}

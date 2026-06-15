@@ -1,0 +1,33 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $release := .Release }}
+{{- $name := include "cacheonly.name" . }}
+{{- $chart := include "cacheonly.chart" . }}
+{{- $fullName := include "cacheonly.fullname" . }}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}-config
+  labels:
+    name: {{ $fullName }}-config
+    app: {{ $name }}
+    chart: {{ $chart }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+data:
+  alluxio-site.properties: |-
+    {{- include "cacheonly.site.properties" . | nindent 4 }}
+  alluxio-env.sh: |-
+    {{- include "cacheonly.env" . | nindent 4 }}
+  log4j2-gemini.xml: |-
+    {{- .Files.Get "resources/log4j2-gemini.xml" | nindent 4 }}

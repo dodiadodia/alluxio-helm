@@ -1,0 +1,254 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $fullName := include "common.fullname" . }}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}-prometheus-config
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+data:
+  prometheus.yaml: |-
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    {{- if .Values.prometheus.remoteWrite }}
+    remote_write:
+      {{- range $i, $conf := .Values.prometheus.remoteWrite }}
+      - url: {{ $conf.url }}
+        {{- if $conf.queueConfig }}
+        queue_config:
+          max_samples_per_send: {{ $conf.queueConfig.maxSamplesPerSend }}
+          capacity: {{ $conf.queueConfig.capacity }}
+          max_shards: {{ $conf.queueConfig.maxShards }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.prometheus.remoteRead }}
+    remote_read:
+      {{- range $i, $conf := .Values.prometheus.remoteRead }}
+      - url: {{ $conf.url }}
+        {{- if hasKey $conf "readRecent" }}
+        read_recent: {{ $conf.readRecent }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    scrape_configs:
+      - job_name: 'prometheus'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - {{ .Release.Namespace }}
+        tls_config:
+          insecure_skip_verify: true
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            action: keep
+            regex: (?:{{ .Release.Name }})
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            action: keep
+            regex: prometheus
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod_name
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            action: replace
+            target_label: cluster_name
+
+      - job_name: 'etcd'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - {{ .Release.Namespace }}
+        {{- if and .Values.prometheus.etcdTls.enabled .Values.prometheus.etcdTls.secretName }}
+        scheme: https
+        tls_config:
+          {{- if .Values.prometheus.etcdTls.caFile }}
+          ca_file: {{ .Values.prometheus.etcdTls.certDir }}/{{ .Values.prometheus.etcdTls.caFile }}
+          {{- end }}
+          {{- if .Values.prometheus.etcdTls.certFile }}
+          cert_file: {{ .Values.prometheus.etcdTls.certDir }}/{{ .Values.prometheus.etcdTls.certFile }}
+          {{- end }}
+          {{- if .Values.prometheus.etcdTls.certKeyFile }}
+          key_file: {{ .Values.prometheus.etcdTls.certDir }}/{{ .Values.prometheus.etcdTls.certKeyFile }}
+          {{- end }}
+          insecure_skip_verify: false
+        {{- else }}
+        tls_config:
+          insecure_skip_verify: true
+        {{- end }}
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            action: keep
+            regex: (?:{{ .Release.Name }})
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            action: keep
+            regex: etcd
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_name, __meta_kubernetes_pod_name, __meta_kubernetes_namespace, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: (.+);(.+)-\d+;(.+);(.+)
+            replacement: ${1}.${2}-headless.${3}.svc.cluster.local:${4}
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod_name
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            action: replace
+            target_label: cluster_name
+
+      - job_name: 'coordinator'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - {{ .Release.Namespace }}
+        tls_config:
+          insecure_skip_verify: true
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            action: keep
+            regex: (?:{{ .Release.Name }})
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            action: keep
+            regex: coordinator
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod_name
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            action: replace
+            target_label: cluster_name
+
+      - job_name: 'worker'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - {{ .Release.Namespace }}
+        tls_config:
+          insecure_skip_verify: true
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            action: keep
+            regex: (?:{{ .Release.Name }})
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            action: keep
+            regex: worker
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod_name
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            action: replace
+            target_label: cluster_name
+
+      - job_name: 'fuse'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - {{ .Release.Namespace }}
+        tls_config:
+          insecure_skip_verify: true
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            action: keep
+            regex: (?:{{ .Release.Name }})
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            action: keep
+            regex: (csi-)?fuse
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod_name
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            action: replace
+            target_label: cluster_name

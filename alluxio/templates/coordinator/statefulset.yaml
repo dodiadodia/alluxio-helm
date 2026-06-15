@@ -1,0 +1,280 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $fullName := include "common.fullname" . }}
+{{- $alluxioCoordinatorConfDir := include "common.basePath" "/conf" }}
+{{- $alluxioCoordinatorLogDir := include "common.basePath" "/logs" }}
+{{- $alluxioCoordinatorMetastoreDir := include "common.baseHostPath" "/metastore" }}
+{{- $fdbDirPath := include "common.basePath" "/fdb" }}
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullName }}-coordinator
+  labels:
+    {{- include "common.labels" (dict "component" "coordinator" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "common.matchLabels" (dict "component" "coordinator" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 6 }}
+      {{- if and (.Values.usePodLabelsInSelector) (.Values.podLabels) }}
+      {{- toYaml .Values.podLabels | trim | nindent 6 }}
+      {{- end }}
+  serviceName: {{ $fullName }}-coordinator
+  replicas: {{ .Values.coordinator.count }}
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        {{- include "common.labels" (dict "component" "coordinator" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 8 }}
+        {{- if .Values.podLabels }}
+        {{- toYaml .Values.podLabels | trim | nindent 8 }}
+        {{- end }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.coordinator.ports.web }}"
+        prometheus.io/path: "/metrics"
+        {{- if .Values.coordinator.podAnnotations }}
+        {{- toYaml .Values.coordinator.podAnnotations | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml .Values.hostAliases | trim | nindent 8 }}
+      {{- end }}
+      hostNetwork: {{ include "alluxio.hostNetwork" (dict "top" . "component" "coordinator") }}
+      dnsPolicy: {{ include "alluxio.dnsPolicy" (dict "top" . "component" "coordinator") }}
+      nodeSelector:
+        {{- if .Values.coordinator.nodeSelector }}
+        {{- toYaml .Values.coordinator.nodeSelector | trim | nindent 8 }}
+        {{- end }}
+        {{- if .Values.nodeSelector }}
+        {{- toYaml .Values.nodeSelector | trim | nindent 8 }}
+        {{- end }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app.kubernetes.io/component"
+                    operator: In
+                    values:
+                      - "coordinator"
+              topologyKey: "kubernetes.io/hostname"
+        {{- if .Values.coordinator.affinity }}
+        {{- toYaml .Values.coordinator.affinity | nindent 8 }}
+        {{- end }}
+      tolerations:
+        {{- if .Values.coordinator.tolerations }}
+        {{- toYaml .Values.coordinator.tolerations | trim | nindent 8 }}
+        {{- end }}
+        {{- if .Values.tolerations }}
+        {{- toYaml .Values.tolerations | trim | nindent 8 }}
+        {{- end }}
+      {{- if .Values.coordinator.priorityClassName }}
+      priorityClassName: {{ .Values.coordinator.priorityClassName }}
+      {{- end }}
+      securityContext:
+        runAsUser: {{ .Values.user }}
+        runAsGroup: {{ .Values.group }}
+        fsGroup: {{ .Values.fsGroup }}
+      {{- if .Values.serviceAccountName }}
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- end }}
+      {{- if .Values.imagePullSecrets }}
+      {{- include "common.imagePullSecrets" .Values | nindent 6 }}
+      {{- end }}
+      initContainers:
+      {{- if or (.Values.logPersistence) (eq .Values.coordinator.metastore.type "hostPath") }}
+      - name: path-permission
+        image: {{ .Values.image }}:{{ .Values.imageTag }}
+        imagePullPolicy: {{ .Values.imagePullPolicy }}
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        {{- if .Values.coordinator.resources }}
+        resources:
+          {{- toYaml .Values.coordinator.resources | trim | nindent 10 }}
+        {{- end }}
+        command: ["chown"]
+        args:
+          - {{ .Values.user }}:{{ .Values.group }}
+          {{- if .Values.logPersistence }}
+          - {{ $alluxioCoordinatorLogDir }}
+          {{- end }}
+          {{- if eq .Values.coordinator.metastore.type "hostPath" }}
+          - {{ $alluxioCoordinatorMetastoreDir }}
+          {{- end }}
+        volumeMounts:
+          {{- if .Values.logPersistence }}
+          - name: logs
+            mountPath: {{ $alluxioCoordinatorLogDir }}
+          {{- end }}
+          {{- if eq .Values.coordinator.metastore.type "hostPath" }}
+          - name: metastore
+            mountPath: {{ $alluxioCoordinatorMetastoreDir }}
+          {{- end }}
+      {{- end }}
+      {{- if .Values.etcd.enabled }}
+      - name: wait-etcd
+        image: {{ .Values.image }}:{{ .Values.imageTag }}
+        {{- if .Values.coordinator.resources }}
+        resources:
+          {{- toYaml .Values.coordinator.resources | trim | nindent 10 }}
+        {{- end }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - until nc -z {{ .Release.Name }}-etcd 2379;
+            do sleep 2;
+            done
+      {{- end }}
+      {{- if not (hasKey .Values.properties "alluxio.license") }}
+      - name: wait-license
+        image: {{ .Values.image }}:{{ .Values.imageTag }}
+        {{- if .Values.coordinator.resources }}
+        resources:
+          {{- toYaml .Values.coordinator.resources | trim | nindent 10 }}
+        {{- end }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - while alluxio license show 2>&1 | grep 'No valid license provided';
+            do sleep 2;
+            done
+        volumeMounts:
+          - name: configs
+            mountPath: {{ $alluxioCoordinatorConfDir }}
+      {{- end }}
+      containers:
+        - name: alluxio-coordinator
+          image: {{ .Values.image }}:{{ .Values.imageTag }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- if .Values.coordinator.resources }}
+          resources:
+            {{- toYaml .Values.coordinator.resources | trim | nindent 12 }}
+          {{- end }}
+          command: ["tini", "-g", "--"]
+          args: ["alluxio", "process", "start", "coordinator", "--direct", "--console-log"]
+          env:
+            {{- range $key, $value := .Values.coordinator.env }}
+            - name: "{{ $key }}"
+              value: "{{ $value }}"
+            {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: {{ .Values.coordinator.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.coordinator.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.coordinator.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.coordinator.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.coordinator.readinessProbe.successThreshold }}
+          ports:
+          - containerPort: {{ .Values.coordinator.ports.rpc }}
+            name: rpc
+          - containerPort: {{ .Values.coordinator.ports.web }}
+            name: web
+          volumeMounts:
+            - name: configs
+              mountPath: {{ $alluxioCoordinatorConfDir }}
+            - name: metastore
+              mountPath: {{ $alluxioCoordinatorMetastoreDir }}
+            {{- if .Values.logPersistence }}
+            - name: logs
+              mountPath: {{ $alluxioCoordinatorLogDir }}
+            {{- end }}
+            {{- if .Values.fdb.enabled }}
+            - name: fdb-config
+              mountPath: {{ $fdbDirPath }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.secrets }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.secrets.coordinator "readOnly" true) | indent 12 }}
+            {{- end }}
+            {{- if .Values.configMaps }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.configMaps.coordinator "readOnly" true) | indent 12 }}
+            {{- end }}
+            {{- if .Values.hostPaths }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.hostPaths.coordinator "readOnly" false) | indent 12 }}
+            {{- end }}
+            {{- if .Values.pvcMounts }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.pvcMounts.coordinator "readOnly" false) | indent 12 }}
+            {{- end }}
+      restartPolicy: Always
+      volumes:
+        - name: configs
+          configMap:
+            name: {{ $fullName }}-alluxio-conf
+        {{- if .Values.secrets }}
+        {{- include "common.secretVolumes" .Values.secrets.coordinator | indent 8 }}
+        {{- end }}
+        {{- if .Values.configMaps }}
+        {{- include "common.configMapVolumes" .Values.configMaps.coordinator | indent 8 }}
+        {{- end }}
+        {{- if .Values.hostPaths }}
+        {{- include "common.hostPathVolumes" .Values.hostPaths.coordinator | indent 8 }}
+        {{- end }}
+        {{- if .Values.pvcMounts }}
+        {{- include "common.pvcVolumes" .Values.pvcMounts.coordinator | indent 8 }}
+        {{- end }}
+        {{- if eq .Values.coordinator.metastore.type "hostPath" }}
+        - name: metastore
+          hostPath:
+            path: {{ .Values.coordinator.metastore.hostPath }}
+            type: DirectoryOrCreate
+        {{- else if eq .Values.coordinator.metastore.type "emptyDir" }}
+        - name: metastore
+          emptyDir: {}
+        {{- end }}
+        {{- if .Values.logPersistence }}
+        {{- if eq .Values.coordinator.log.type "hostPath" }}
+        - name: logs
+          hostPath:
+            path: {{ .Values.coordinator.log.hostPath }}
+            type: DirectoryOrCreate
+        {{- else if eq .Values.coordinator.log.type "emptyDir" }}
+        - name: logs
+          emptyDir: {}
+        {{- end }}
+        {{- end }}
+        {{- if .Values.fdb.enabled }}
+        - name: fdb-config
+          configMap:
+            name: {{ include "common.fullname" . }}-fdb-meta-config
+            items:
+              - key: cluster-file
+                path: fdb.cluster
+        {{- end }}
+  {{- $logPvcNeeded := and (.Values.logPersistence) (eq .Values.coordinator.log.type "persistentVolumeClaim") }}
+  {{- $metastorePvcNeeded := and (eq .Values.coordinator.metastore.type "persistentVolumeClaim") (le (int .Values.coordinator.count) 1) }}
+  {{- if or $logPvcNeeded $metastorePvcNeeded }}
+  volumeClaimTemplates:
+    {{- if $metastorePvcNeeded }}
+    - metadata:
+        name: metastore
+      spec:
+        storageClassName: {{ .Values.coordinator.metastore.storageClass | quote }}
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.coordinator.metastore.size }}
+    {{- end }}
+    {{- if $logPvcNeeded }}
+    - metadata:
+        name: logs
+      spec:
+        storageClassName: {{ .Values.coordinator.log.storageClass | quote }}
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.coordinator.log.size }}
+    {{- end }}
+  {{- end }}

@@ -1,0 +1,4 @@
+apiVersion: v2
+description: Common Helm chart Templates for Kubernetes
+name: common
+version: 3.6.1

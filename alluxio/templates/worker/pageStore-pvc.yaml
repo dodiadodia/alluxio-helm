@@ -1,0 +1,29 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $fullName := include "common.fullname" . }}
+{{- $reservedSize  := .Values.worker.pagestore.reservedSize -}}
+
+{{- if and (ne .Values.worker.type "StatefulSet") (eq .Values.worker.pagestore.type "persistentVolumeClaim") }}
+{{- $pvcName := include "alluxio.getPvcName" (dict "prefix" $fullName "component" "pagestore") }}
+{{- range $i, $size := splitList "," .Values.worker.pagestore.size }}
+  {{- $totalStorage := include "alluxio.calculateTotalStorage" (dict "size" $size "reservedSize" $reservedSize) }}
+    {{- include "common.template.pvc" (dict
+        "name" (printf "%s-%d" $pvcName $i)
+        "size" $totalStorage
+        "storageClass" $.Values.worker.pagestore.storageClass
+        "accessModes" (list "ReadWriteOnce")
+        "Values" $.Values
+        "Chart" $.Chart
+        "Release" $.Release) | nindent 0 }}
+---
+{{- end }}
+{{- end }}

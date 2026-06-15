@@ -1,0 +1,221 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $workerCount := int .Values.worker.count }}
+{{- $hostNetwork := .Values.worker.hostNetwork }}
+{{- $fullName := include "cacheonly.fullname" . }}
+{{- $needPathPermission := false }}
+{{- $hostPaths := list }}
+{{- range .Values.tieredstore.levels }}
+  {{- if eq .type "hostPath" }}
+    {{- $needPathPermission = true }}
+    {{- range (splitList "," .path) }}
+      {{- $hostPaths = append $hostPaths . }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}-worker
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/component: {{ $fullName }}-worker
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: alluxio
+spec:
+  replicas: {{ $workerCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/component: {{ $fullName }}-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/part-of: alluxio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Chart.Name }}
+        app.kubernetes.io/component: {{ $fullName }}-worker
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: alluxio
+      {{- if .Values.worker.podAnnotations }}
+      annotations:
+      {{- with .Values.worker.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+    spec:
+      hostNetwork: {{ $hostNetwork }}
+      dnsPolicy: {{ .Values.worker.dnsPolicy | default ($hostNetwork | ternary "ClusterFirstWithHostNet" "ClusterFirst") }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app.kubernetes.io/component"
+                    operator: In
+                    values:
+                      - {{ $fullName }}-worker
+              topologyKey: "kubernetes.io/hostname"
+        {{- if .Values.worker.affinity }}
+{{ toYaml .Values.worker.affinity | trim | indent 8 }}
+        {{- else if .Values.affinity }}
+{{ toYaml .Values.affinity | trim | indent 8 }}
+        {{- end }}
+      nodeSelector:
+      {{- if .Values.worker.nodeSelector }}
+{{ toYaml .Values.worker.nodeSelector | trim | indent 8 }}
+      {{- else if .Values.nodeSelector }}
+{{ toYaml .Values.nodeSelector | trim | indent 8 }}
+      {{- end }}
+      tolerations:
+      {{- if .Values.worker.tolerations }}
+{{ toYaml .Values.worker.tolerations | trim | indent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+{{ toYaml .Values.tolerations | trim | indent 8 }}
+      {{- end }}
+      securityContext:
+        runAsUser: {{ .Values.user }}
+        runAsGroup: {{ .Values.group }}
+        fsGroup: {{ .Values.fsGroup }}
+      {{- if .Values.worker.serviceAccount }}
+      serviceAccountName: {{ .Values.worker.serviceAccount }}
+      {{- else if .Values.serviceAccount }}
+      serviceAccountName: {{ .Values.serviceAccount }}
+      {{- end }}
+      {{- if .Values.imagePullSecrets }}
+{{ include "cacheonly.imagePullSecrets" . | indent 6 }}
+      {{- end }}
+      {{- if $needPathPermission }}
+      initContainers:
+        - name: path-permission
+          image: {{ .Values.image }}:{{ .Values.imageTag }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          command: [ "chown" ]
+          args:
+            - "{{ .Values.user }}:{{ .Values.group }}"
+            {{- range $hostPaths }}
+            - "{{ . }}"
+            {{- end }}
+          volumeMounts:
+            {{- if .Values.tieredstore -}}
+{{- include "cacheonly.worker.tieredstoreVolumeMounts" . }}
+            {{- end -}}
+      {{- end }}
+      containers:
+        {{- if .Values.worker.extraContainers }}
+{{ include "cacheonly.extraContainers" (dict "extraContainers" .Values.worker.extraContainers) | indent 8 }}
+        {{- end }}
+        - name: cacheonly-worker
+          image: {{ .Values.image }}:{{ .Values.imageTag }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- if .Values.worker.resources }}
+{{ include "cacheonly.worker.resources" . | indent 10 }}
+          {{- end }}
+          command: ["tini", "--", "/entrypoint.sh"]
+          {{- if .Values.worker.args }}
+          args:
+{{ toYaml .Values.worker.args | trim | indent 12 }}
+          {{- end }}
+          env:
+            - name: ALLUXIO_GEMINI_WORKER_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          {{- if not .Values.worker.hostNetwork }}
+            - name: ALLUXIO_GEMINI_WORKER_CONTAINER_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          {{- end }}
+          {{- range $key, $value := .Values.worker.env }}
+            - name: "{{ $key }}"
+              value: "{{ $value }}"
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: {{ .Values.worker.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.worker.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.worker.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.worker.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.worker.readinessProbe.successThreshold }}
+          livenessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: {{ .Values.worker.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.worker.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.worker.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.worker.livenessProbe.failureThreshold }}
+          {{- if .Values.worker.startupProbe }}
+          startupProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: {{ .Values.worker.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.worker.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.worker.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.worker.startupProbe.failureThreshold }}
+          {{- end }}
+          ports:
+            - containerPort: {{ .Values.worker.ports.rpc }}
+              name: rpc
+            - containerPort: {{ .Values.worker.ports.web }}
+              name: web
+          volumeMounts:
+            {{- if .Values.worker.extraVolumeMounts }}
+{{ include "cacheonly.extraVolumeMounts" (dict "extraVolumeMounts" .Values.worker.extraVolumeMounts) | indent 12 }}
+            {{- end }}
+            - name: {{ $fullName }}-config-volume
+              mountPath: /opt/alluxio/conf
+            {{- if .Values.secrets -}}
+              {{- if .Values.secrets.worker -}}
+{{- include "cacheonly.worker.secretVolumeMounts" . }}
+              {{- end -}}
+            {{- end -}}
+            {{- if .Values.configmaps }}
+              {{- if .Values.configmaps.worker }}
+{{- include "cacheonly.worker.configmapVolumeMounts" . }}
+              {{- end }}
+            {{- end }}
+            {{- if .Values.tieredstore -}}
+{{- include "cacheonly.worker.tieredstoreVolumeMounts" . }}
+            {{- end -}}
+            {{- if .Values.mounts -}}
+{{- include "cacheonly.worker.otherVolumeMounts" . }}
+            {{- end }}
+      restartPolicy: Always
+      volumes:
+        {{- if .Values.worker.extraVolumes }}
+{{ include "cacheonly.extraVolumes" (dict "extraVolumes" .Values.worker.extraVolumes) | indent 8 }}
+        {{- end }}
+        - name: {{ $fullName }}-config-volume
+          configMap:
+            name: {{ $fullName }}-config
+        {{- if .Values.secrets }}
+          {{- if .Values.secrets.worker }}
+{{- include "cacheonly.worker.secretVolumes" . }}
+          {{- end }}
+        {{- end }}
+        {{- if .Values.tieredstore }}
+{{- include "cacheonly.worker.daemonset.tieredstoreVolumes" . }}
+        {{- end}}
+        {{- if .Values.mounts }}
+          {{- range .Values.mounts }}
+        - name: "{{ .name }}"
+          persistentVolumeClaim:
+            claimName: "{{ .name }}"
+          {{- end }}
+        {{- end }}

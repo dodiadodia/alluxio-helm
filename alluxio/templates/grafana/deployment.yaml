@@ -1,0 +1,112 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+{{- if .Values.grafana.enabled }}
+
+{{- $fullName := include "common.fullname" . }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}-grafana
+  labels:
+    {{- include "common.labels" (dict "component" "grafana" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "common.matchLabels" (dict "component" "grafana" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "common.labels" (dict "component" "grafana" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 8 }}
+        {{- if .Values.podLabels }}
+        {{- toYaml .Values.podLabels | trim | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- if .Values.grafana.podAnnotations }}
+        {{- toYaml .Values.grafana.podAnnotations | nindent 8 }}
+        {{- end }}
+    spec:
+      hostPID: {{ .Values.grafana.hostPID }}
+      hostNetwork: {{ include "alluxio.hostNetwork" (dict "top" . "component" "grafana") }}
+      dnsPolicy: {{ include "alluxio.dnsPolicy" (dict "top" . "component" "grafana") }}
+      {{- if .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml .Values.hostAliases | trim | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- if .Values.grafana.nodeSelector }}
+        {{- toYaml .Values.grafana.nodeSelector | trim | nindent 8 }}
+        {{- end }}
+        {{- if .Values.nodeSelector }}
+        {{- toYaml .Values.nodeSelector | trim | nindent 8 }}
+        {{- end }}
+      affinity:
+        {{- if .Values.grafana.affinity }}
+        {{- toYaml .Values.grafana.affinity | nindent 8 }}
+        {{- end }}
+      tolerations:
+        {{- if .Values.grafana.tolerations }}
+        {{- toYaml .Values.grafana.tolerations | trim | nindent 8 }}
+        {{- end }}
+        {{- if .Values.tolerations }}
+        {{- toYaml .Values.tolerations | trim | nindent 8 }}
+        {{- end }}
+      {{- if .Values.grafana.priorityClassName }}
+      priorityClassName: {{ .Values.grafana.priorityClassName }}
+      {{- end }}
+      {{- if .Values.serviceAccountName }}
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- end }}
+      {{- if .Values.imagePullSecrets }}
+      {{- include "common.imagePullSecrets" .Values | nindent 6 }}
+      {{- end }}
+      containers:
+        - image: {{ .Values.grafana.image }}:{{ .Values.grafana.imageTag }}
+          name: grafana
+          imagePullPolicy: {{ .Values.grafana.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.grafana.resources | trim | nindent 12 }}
+          env:
+            {{- range $key, $value := .Values.grafana.env }}
+            - name: "{{ $key }}"
+              value: "{{ $value }}"
+            {{- end }}
+          ports:
+            - containerPort: {{ .Values.grafana.ports.web }}
+              name: web
+              protocol: TCP
+              hostPort: {{ .Values.grafana.ports.hostPort }}
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: 3000
+            initialDelaySeconds: 30
+          volumeMounts:
+            - name: grafana-storage
+              mountPath: /opt
+            {{- if .Values.grafana.grafanaConfig }}
+              {{- range .Values.grafana.grafanaConfig }}
+            - name: conf-{{ .name }}
+              mountPath: {{ .path }}
+              {{- end }}
+            {{- end }}
+      volumes:
+        - name: grafana-storage
+          emptyDir: {}
+        {{-  if .Values.grafana.grafanaConfig }}
+          {{- range .Values.grafana.grafanaConfig }}
+        - name: conf-{{ .name }}
+          configMap:
+            name: {{ $fullName }}-{{ .name }}
+          {{- end }}
+        {{- end }}
+{{- end }}

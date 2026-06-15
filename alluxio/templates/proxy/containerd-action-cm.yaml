@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: host-setup-actions-alluxio
+  namespace: alluxio
+  labels:
+    app: host-setup-alluxio
+data:
+  setup: |
+    #!/usr/bin/env bash
+    set -xe
+
+    if [[ -f /opt/sentinel-host-setup ]]; then
+       if [[ ! -z "\$1" ]]; then
+         echo "received positional argument, forcing cleanup"
+         rm /opt/sentinel-host-setup || true
+       else
+         echo "Already ran, exiting"
+         exit 0
+       fi
+    fi
+
+    echo "===== containerd registry mirror host setup ====="
+    echo "timestamp: \$(date -Is)"
+    echo "host: \$(hostname)"
+    echo "uname: \$(uname -a)"
+
+    REGISTRY="alluxio.azurecr.io"
+    MIRROR_DIR="/etc/containerd/certs.d/${REGISTRY}"
+    mkdir -p "${MIRROR_DIR}"
+
+    cat > "${MIRROR_DIR}/hosts.toml" <<TOML
+    server = "https://${REGISTRY}"
+
+    [host."http://127.0.0.1:5000"]
+      capabilities = ["pull", "resolve"]
+      skip_verify = true
+    TOML
+
+    echo "containerd mirror configured for ${REGISTRY}"
+    systemctl restart containerd || true
+
+    echo "===== containerd registry mirror host setup (done) ====="
+
+    touch /opt/sentinel-host-setup

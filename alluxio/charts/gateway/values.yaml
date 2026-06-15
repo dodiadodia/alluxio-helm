@@ -1,0 +1,169 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+count: 1
+
+image: alluxio/gateway
+imageTag: ""
+imagePullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Service Account
+# If not specified, 'default' ServiceAccount of the namespace shall be used for all Alluxio pods
+serviceAccountName: ""
+
+# HostAliases is an optional list of hostnames and IPs that will be injected into all pods,
+# for providing the mapping between hostnames and IPs of services not in the K8s cluster, like HDFS.
+# Example:
+# hostAliases:
+#   - ip: "192.168.0.1"
+#     hostnames:
+#       - "example1.com"
+#       - "example2.com"
+hostAliases: []
+
+env: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+podAnnotations: {}
+
+podLabels: {}
+
+hostPaths:
+
+pvcMounts:
+
+configMaps:
+
+secrets:
+
+service:
+  annotations: {}
+  headless: false
+  type: ClusterIP
+  ports:
+    api: 80
+#    tls-api:
+  nodePorts:
+    api: 30001
+    tls-api: 30002
+  loadBalancerSourceRanges: []
+  externalIPs: []
+  externalName:
+
+dispatch:
+  # supported types: "broadcast" or "proxy"
+  type: proxy
+  clusters:
+    # TODO(Jiasen): Set this in the operator Golang code
+    - name: default
+      addr: alluxio-coordinator-0:19999
+
+log:
+  level: info
+  type: hostPath
+  hostPath: /mnt/alluxio/logs/gateway
+  size: 1Gi
+  storageClass: standard
+
+auditLog:
+  enabled: true
+
+tls:
+  enabled: false
+  secretName: ""
+  certDir: /opt/alluxio/certs
+  certFile:
+  certKeyFile:
+  caFile:
+  mtlsEnabled: false
+
+authentication:
+  enabled: false
+  # supported types: "oidc", "simple"
+  type: oidc
+  oidc:
+    jwksUri:
+    jwksConfigMapName:
+    jwksFilename:
+    aud:
+    tid:
+    nbfCheck: false
+    roleFieldName:
+    groupFieldName:
+    userFieldName:
+
+authorization:
+  enabled: false
+  # supported types: "opa"
+  type: opa
+  opa:
+    configMapName:
+    filenames:
+      - opa_auth_policy.rego
+      - opa_data.yaml
+    query: data.opa_auth_policy.allow
+    superAdmin:
+    groupAdmin:
+    allowApis:
+    denyApis:
+    groups:
+#    - group: Search
+#      allow:
+#        pathPrefixes:
+#          - prefix: s3://search-bucket/dir1/dir2
+#          # If not defined, default allow all APIs
+#          - prefix: s3://search-bucket/dir1/dir3
+#            apis:
+#              - /mount
+#              - /load
+#      deny:
+#        pathPrefixes:
+#          - prefix: s3://search-bucket/dir1/dir4
+#            apis:
+#              - /mount
+#              - /load
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+  # Probes that do health checks on containers
+readinessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 1
+  failureThreshold: 3
+  successThreshold: 1
+livenessProbe:
+  initialDelaySeconds: 15
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 2
+startupProbe:
+  initialDelaySeconds: 15
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 2

@@ -1,0 +1,46 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- define "alluxio.conf.configmap" -}}
+{{- $nameSuffix := .nameSuffix }}
+
+{{- $fullName := include "common.fullname" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}-alluxio-conf{{ $nameSuffix }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+data:
+  alluxio-site.properties: |-
+    {{- include "alluxio.site.properties" . | nindent 4 }}
+  alluxio-env.sh: |-
+    {{- include "alluxio.env" . | nindent 4 }}
+  log4j2.xml: |-
+    {{- include "alluxio.log4j2" . | nindent 4 }}
+  log4j.properties: |-
+    log4j.rootLogger=OFF
+{{- end -}}
+
+{{- include "alluxio.conf.configmap" . | nindent 0 }}
+{{- if .Values.workerGroups }}
+  {{- range $i, $group := .Values.workerGroups }}
+---
+    {{- include "alluxio.conf.configmap" (dict
+        "nameSuffix" (printf "-group-%d" $i)
+        "workerConfig" (mergeOverwrite (deepCopy $.Values.worker) ($group.worker | default (dict)))
+        "properties" (mergeOverwrite (deepCopy $.Values.properties) ($group.properties | default (dict)))
+        "Release" $.Release
+        "Chart" $.Chart
+        "Values" $.Values
+        "Files" $.Files) | nindent 0 }}
+  {{- end }}
+{{- end }}

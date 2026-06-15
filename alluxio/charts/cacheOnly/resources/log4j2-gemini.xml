@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+    (the "License"). You may not use this work except in compliance with the License, which is
+    available at www.apache.org/licenses/LICENSE-2.0
+
+    This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+    either express or implied, as more fully set forth in the License.
+
+    See the NOTICE file distributed with this work for information regarding copyright ownership.
+
+-->
+<Configuration status="WARN" monitorInterval="30">
+    <Properties>
+        <Property name="additional.logger.type">${sys:alluxio.gemini.additional.logger.type:-}</Property>
+        <Property name="logger.type">${sys:alluxio.gemini.logger.type}</Property>
+        <Property name="logs.dir">${sys:alluxio.gemini.logs.dir}</Property>
+        <Property name="user.logs.dir">${sys:alluxio.gemini.user.logs.dir}</Property>
+        <Property name="username">${sys:user.name}</Property>
+    </Properties>
+    <Loggers>
+        <Root level="info">
+            <AppenderRef ref="${logger.type}"/>
+            <AppenderRef ref="${additional.logger.type}"/>
+        </Root>
+        <!-- Logger for parquet writer -->
+        <Logger name="org.apache.parquet.hadoop.InternalParquetRecordWriter" level="warn"/>
+
+        <!-- Logger for parquet reader -->
+        <Logger name="org.apache.parquet.hadoop.InternalParquetRecordReader" level="warn"/>
+
+        <!-- Disable noisy DEBUG logs -->
+        <!-- Logger for AWS instance metadata -->
+        <Logger name="com.amazonaws.internal.InstanceMetadataServiceResourceFetcher" level="off"/>
+
+        <!-- Logger for AWS EC2 metadata utils -->
+        <Logger name="com.amazonaws.util.EC2MetadataUtils" level="off"/>
+
+        <!-- Logger for gRPC Netty server handler -->
+        <Logger name="io.grpc.netty.NettyServerHandler" level="off"/>
+
+        <!-- Disable noisy INFO logs from ratis -->
+        <Logger name="org.apache.ratis.grpc.server.GrpcLogAppender" level="error"/>
+        <Logger name="org.apache.ratis.grpc.server.GrpcServerProtocolService" level="warn"/>
+        <Logger name="org.apache.ratis.server.impl.FollowerInfo" level="warn"/>
+        <Logger name="org.apache.ratis.server.leader.FollowerInfo" level="warn"/>
+        <Logger name="org.apache.ratis.server.impl.RaftServerImpl" level="warn"/>
+        <Logger name="org.apache.ratis.server.RaftServer$Division" level="warn"/>
+
+        <!-- Logger for Alluxio Security -->
+        <Logger name="alluxio.gemini.security" level="info"/>
+    </Loggers>
+    <Appenders>
+        <!-- Configures an appender whose name is "" (empty string) to be NullAppender.
+             By default, if a Java class does not specify a particular appender, log4j will
+             use "" as the appender name, then it will use Null appender. -->
+        <Null name=""/>
+
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="%d{ISO8601} %-5p %c{1} - %m%n"/>
+        </Console>
+
+        <!-- Appender for Master -->
+        <RollingFile name="MASTER_LOGGER" fileName="${logs.dir}/master_gemini.log" filePattern="${logs.dir}/master_gemini-%d{yyyy-MM-dd}-%i.log.gz" createOnDemand="true">
+            <PatternLayout pattern="%d{ISO8601} %-5p %c{1} - %m%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="10MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10000">
+                <Delete basePath="${logs.dir}" maxDepth="1">
+                    <IfFileName glob="master_gemini-*.log.gz" />
+                    <IfAccumulatedFileCount exceeds="100" />
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+
+        <!-- Appender for secondary Master -->
+        <RollingFile name="SECONDARY_MASTER_LOGGER" fileName="${logs.dir}/secondary_master_gemini.log" filePattern="${logs.dir}/secondary_master_gemini-%d{yyyy-MM-dd}-%i.log.gz" createOnDemand="true">
+            <PatternLayout pattern="%d{ISO8601} %-5p %c{1} - %m%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="10MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10000">
+                <Delete basePath="${logs.dir}" maxDepth="1">
+                    <IfFileName glob="secondary_master_gemini-*.log.gz" />
+                    <IfAccumulatedFileCount exceeds="100" />
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+
+        <!-- Appender for Master audit -->
+        <RollingFile name="MASTER_AUDIT_LOGGER" fileName="${logs.dir}/master_audit_gemini.log" filePattern="${logs.dir}/master_audit_gemini-%d{yyyy-MM-dd}-%i.log.gz" createOnDemand="true">
+            <PatternLayout pattern="%d{ISO8601} %-5p %c{1} - %m%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="10MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10000">
+                <Delete basePath="${logs.dir}" maxDepth="1">
+                    <IfFileName glob="master_audit_gemini-*.log.gz" />
+                    <IfAccumulatedFileCount exceeds="100" />
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+
+        <!-- Appender for Worker -->
+        <RollingFile name="WORKER_LOGGER" fileName="${logs.dir}/worker_gemini.log" filePattern="${logs.dir}/worker_gemini-%d{yyyy-MM-dd}-%i.log.gz" createOnDemand="true">
+            <PatternLayout pattern="%d{ISO8601} %-5p %c{1} - %m%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="10MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10000">
+                <Delete basePath="${logs.dir}" maxDepth="1">
+                    <IfFileName glob="worker_gemini-*.log.gz" />
+                    <IfAccumulatedFileCount exceeds="100" />
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+
+        <!-- Appender for User -->
+        <RollingFile name="USER_LOGGER" fileName="${user.logs.dir}/user_${username}_gemini.log" filePattern="${user.logs.dir}/user_${username}_gemini-%d{yyyy-MM-dd}-%i.log.gz" createOnDemand="true">
+            <PatternLayout pattern="%d{ISO8601} %-5p %c{1} - %m%n"/>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="10MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10000">
+                <Delete basePath="${user.logs.dir}" maxDepth="1">
+                    <IfFileName glob="user_*_gemini-*.log.gz" />
+                    <IfAccumulatedFileCount exceeds="100" />
+                </Delete>
+            </DefaultRolloverStrategy>
+        </RollingFile>
+    </Appenders>
+</Configuration>

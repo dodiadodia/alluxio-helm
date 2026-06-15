@@ -1,0 +1,15 @@
+dependencies:
+- name: common
+  repository: file://../common
+  version: 3.6.1
+- name: etcd
+  repository: https://charts.bitnami.com/bitnami
+  version: 9.0.5
+- name: cacheOnly
+  repository: file://../cacheOnly
+  version: 3.6.1
+- name: gateway
+  repository: file://../gateway
+  version: 3.6.1
+digest: sha256:9e75bfe95e00eb6528c8412889c3310b541f2c0b10c9f1d8968edb8abd8ad834
+generated: "2026-05-15T00:48:27.781721427-07:00"

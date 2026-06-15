@@ -1,0 +1,188 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $gatewayLogDir := include "common.basePath" "/logs" }}
+{{- $gatewayConfDir := include "common.basePath" "/conf" }}
+{{- $authConfig := include "gateway.authConfig" . | fromYaml }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "common.fullname" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.count }}
+  selector:
+    matchLabels:
+      {{- include "common.matchLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "common.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml .Values.hostAliases | trim | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.imagePullSecrets }}
+      {{- include "common.imagePullSecrets" .Values | nindent 6 }}
+      {{- end }}
+      {{- if .Values.serviceAccountName }}
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-cluster
+          image: "{{ .Values.image }}:{{ .Values.imageTag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [ "sh", "-c" ]
+          args:
+            - |
+              {{- range $index, $cluster := .Values.dispatch.clusters }}
+              echo "Checking if {{ $cluster.name }} at {{ $cluster.addr }} is ready..."
+              {{- $parts := splitList ":" $cluster.addr }}
+              {{- with $parts }}
+              until echo | nc -z -v -w5 {{ index . 0 }} {{ index . 1 }}; do
+                echo "Waiting for {{ $cluster.name }} at {{ $cluster.addr }} to be ready..."
+                sleep 5
+              done
+              {{- end }}
+              echo "{{ $cluster.name }} at {{ $cluster.addr }} is ready!"
+              {{- end }}
+              echo "All clusters are ready!"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image }}:{{ .Values.imageTag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [ "gateway" ]
+          args:
+            - "--config={{ $gatewayConfDir }}/gateway.yaml"
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: "{{ $key }}"
+              value: "{{ $value }}"
+            {{- end }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.service.ports.api }}
+            {{- $tlsApiPort := (index .Values.service.ports "tls-api") }}
+            {{- if $tlsApiPort }}
+            - name: tls-api
+              containerPort: {{ $tlsApiPort }}
+            {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: api
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+          livenessProbe:
+            tcpSocket:
+              port: api
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          startupProbe:
+            tcpSocket:
+              port: api
+            initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: configs
+              mountPath: {{ $gatewayConfDir }}
+            {{- if and .Values.tls.enabled .Values.tls.secretName }}
+            - name: certs
+              mountPath: {{ .Values.tls.certDir }}
+            {{- end }}
+            - name: logs
+              mountPath: {{ $gatewayLogDir }}
+            {{- if .Values.secrets }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.secrets "readOnly" true) | indent 12 }}
+            {{- end }}
+            {{- if .Values.configMaps }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.configMaps "readOnly" true) | indent 12 }}
+            {{- end }}
+            {{- if .Values.hostPaths }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.hostPaths "readOnly" false) | indent 12 }}
+            {{- end }}
+            {{- if .Values.pvcMounts }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.pvcMounts "readOnly" false) | indent 12 }}
+            {{- end }}
+      volumes:
+        - name: configs
+          projected:
+            sources:
+              - configMap:
+                  name: {{ include "common.fullname" . }}
+              {{- if and $authConfig.authorization.enabled (eq $authConfig.authorization.type "opa") }}
+              - configMap:
+                  name: {{ $authConfig.authorization.opa.configMapName | default (printf "%s-opa" (include "common.fullname" .)) }}
+              {{- end }}
+              {{- if and $authConfig.authentication.enabled (eq $authConfig.authentication.type "oidc") $authConfig.authentication.oidc.jwksConfigMapName (ne $authConfig.authentication.oidc.jwksConfigMapName "") }}
+              - configMap:
+                  name: {{ $authConfig.authentication.oidc.jwksConfigMapName }}
+              {{- end }}
+        {{- if and .Values.tls.enabled .Values.tls.secretName }}
+        - name: certs
+          secret:
+            secretName: {{ .Values.tls.secretName }}
+        {{- end }}
+        - name: logs
+        {{- if eq .Values.log.type "persistentVolumeClaim" }}
+          persistentVolumeClaim:
+            claimName: {{ include "common.fullname" . }}-log
+        {{- else if eq .Values.log.type "hostPath" }}
+          hostPath:
+            path: {{ .Values.log.hostPath }}
+            type: DirectoryOrCreate
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+        {{- if .Values.secrets }}
+        {{- include "common.secretVolumes" .Values.secrets | indent 8 }}
+        {{- end }}
+        {{- if .Values.configMaps }}
+        {{- include "common.configMapVolumes" .Values.configMaps | indent 8 }}
+        {{- end }}
+        {{- if .Values.hostPaths }}
+        {{- include "common.hostPathVolumes" .Values.hostPaths | indent 8 }}
+        {{- end }}
+        {{- if .Values.pvcMounts }}
+        {{- include "common.pvcVolumes" .Values.pvcMounts | indent 8 }}
+        {{- end }}

@@ -1,0 +1,487 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- define "alluxio.worker.deployment" -}}
+{{- $nameSuffix := .nameSuffix }}
+{{- $additionalPodLabels := .additionalPodLabels }}
+{{- $workerConfig := .workerConfig }}
+
+{{- $fullName := include "common.fullname" . }}
+{{- $authConfig := include "alluxio.authConfig" . | fromYaml }}
+{{- $alluxioWorkerConfDir := include "common.basePath" "/conf" }}
+{{- $alluxioWorkerLogDir := include "common.basePath" "/logs" }}
+{{- $alluxioWorkerMetastorePath := include "common.baseHostPath" "/metastore" }}
+{{- $alluxioWorkerSysInfoDirPath := include "common.baseHostPath" "/system-info" }}
+{{- $fdbDirPath := include "common.basePath" "/fdb" }}
+{{- $alluxioWorkerOidcDir := include "alluxio.workerOidcDir" . }}
+{{- $isStatefulSet := eq .Values.worker.type "StatefulSet" }}
+
+{{- if and (eq .Values.worker.pagestore.type "hostPath") (ne (len (splitList "," $workerConfig.pagestore.hostPath)) (len (splitList "," $workerConfig.pagestore.size))) }}
+{{- fail "Error: worker.pagestore.size doesn't match with worker.pagestore.hostPath" }}
+{{- end }}
+apiVersion: apps/v1
+{{- if $isStatefulSet }}
+kind: StatefulSet
+{{- else }}
+kind: Deployment
+{{- end }}
+metadata:
+  name: {{ $fullName }}-worker{{ $nameSuffix }}
+  labels:
+    {{- include "common.labels" (dict "component" "worker" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 4 }}
+spec:
+  replicas: {{ $workerConfig.count }}
+  selector:
+    matchLabels:
+      {{- include "common.matchLabels" (dict "component" "worker" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 6 }}
+      {{- if and (.Values.usePodLabelsInSelector) (.Values.podLabels) }}
+      {{- toYaml .Values.podLabels | trim | nindent 6 }}
+      {{- end }}
+  {{- if $isStatefulSet }}
+  serviceName: {{ $fullName }}-worker-headless
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      {{- if and $workerConfig.rollingUpdate $workerConfig.rollingUpdate.maxUnavailable }}
+      maxUnavailable: {{ $workerConfig.rollingUpdate.maxUnavailable }}
+      {{- end }}
+  {{- else }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      {{- if $workerConfig.rollingUpdate }}
+      {{- toYaml $workerConfig.rollingUpdate | trim | nindent 6 }}
+      {{- end }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "common.labels" (dict "component" "worker" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 8 }}
+        {{- if $additionalPodLabels }}
+        {{- toYaml $additionalPodLabels | trim | nindent 8 }}
+        {{- end }}
+        {{- if .Values.podLabels }}
+        {{- toYaml .Values.podLabels | trim | nindent 8 }}
+        {{- end }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.worker.ports.web | quote }}
+        prometheus.io/path: "/metrics"
+        {{- if $workerConfig.podAnnotations }}
+        {{- toYaml $workerConfig.podAnnotations | trim | nindent 8 }}
+        {{- end }}
+    spec:
+      hostNetwork: {{ include "alluxio.hostNetwork" (dict "top" . "component" "worker") }}
+      dnsPolicy: {{ include "alluxio.dnsPolicy" (dict "top" . "component" "worker") }}
+      {{- if .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml .Values.hostAliases | trim | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- if $workerConfig.nodeSelector }}
+        {{- toYaml $workerConfig.nodeSelector | trim | nindent 8 }}
+        {{- end }}
+        {{- if .Values.nodeSelector }}
+        {{- toYaml .Values.nodeSelector | trim | nindent 8 }}
+        {{- end }}
+      affinity:
+        {{- if $workerConfig.limitOneWorkerPerNode }}
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app.kubernetes.io/component"
+                    operator: In
+                    values:
+                      - "worker"
+              topologyKey: "kubernetes.io/hostname"
+        {{- end }}
+        {{- if $workerConfig.affinity }}
+        {{- toYaml $workerConfig.affinity | trim | nindent 8 }}
+        {{- end }}
+      tolerations:
+        {{- if $workerConfig.tolerations }}
+        {{- toYaml $workerConfig.tolerations | trim | nindent 8 }}
+        {{- end }}
+        {{- if .Values.tolerations }}
+        {{- toYaml .Values.tolerations | trim | nindent 8 }}
+        {{- end }}
+      {{- if $workerConfig.priorityClassName }}
+      priorityClassName: {{ $workerConfig.priorityClassName }}
+      {{- end }}
+      securityContext:
+        runAsUser: {{ .Values.user }}
+        runAsGroup: {{ .Values.group }}
+        fsGroup: {{ .Values.fsGroup }}
+      {{- if .Values.serviceAccountName }}
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- end }}
+      {{- if .Values.imagePullSecrets }}
+      {{- include "common.imagePullSecrets" .Values | nindent 6 }}
+      {{- end }}
+      initContainers:
+      {{- if or (eq .Values.worker.metastore.type "hostPath")
+                (eq .Values.worker.pagestore.type "hostPath")
+                (and .Values.logPersistence (eq .Values.worker.log.type "hostPath"))
+                (and (not .Values.worker.useExternalId) (eq .Values.worker.systemInfo.type "hostPath")) }}
+      - name: path-permission
+        image: {{ .Values.image }}:{{ .Values.imageTag }}
+        imagePullPolicy: {{ .Values.imagePullPolicy }}
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        {{- if $workerConfig.resources }}
+        resources:
+          {{- toYaml $workerConfig.resources | trim | nindent 10 }}
+        {{- end }}
+        command: [ "chown" ]
+        args:
+          - {{ .Values.user }}:{{ .Values.group }}
+          {{- if and (not .Values.worker.useExternalId) (eq .Values.worker.systemInfo.type "hostPath") }}
+          - {{ $alluxioWorkerSysInfoDirPath }}
+          {{- end }}
+          {{- if and .Values.logPersistence (eq .Values.worker.log.type "hostPath") }}
+          - {{ $alluxioWorkerLogDir }}
+          {{- end }}
+          {{- if eq .Values.worker.metastore.type "hostPath" }}
+          - {{ $alluxioWorkerMetastorePath }}
+          {{- end }}
+          {{- if eq .Values.worker.pagestore.type "hostPath" }}
+          {{- $paths := splitList "," $workerConfig.pagestore.hostPath }}
+          {{- range $i, $path := $paths }}
+          - {{ include "common.baseHostPath" (printf "/pagestore-%d" $i) }}
+          {{- end }}
+          {{- end }}
+        volumeMounts:
+          {{- if and (not .Values.worker.useExternalId) (eq .Values.worker.systemInfo.type "hostPath") }}
+          - name: sys-info
+            mountPath: {{ $alluxioWorkerSysInfoDirPath }}
+          {{- end }}
+          {{- if and .Values.logPersistence (eq .Values.worker.log.type "hostPath") }}
+          - name: logs
+            mountPath: {{ $alluxioWorkerLogDir }}
+          {{- end }}
+          {{- if eq .Values.worker.metastore.type "hostPath" }}
+          - name: metastore
+            mountPath: {{ $alluxioWorkerMetastorePath }}
+          {{- end }}
+          {{- if eq .Values.worker.pagestore.type "hostPath" }}
+          {{- $paths := splitList "," $workerConfig.pagestore.hostPath }}
+          {{- range $i, $path := $paths }}
+          - name: pagestore-{{ $i }}
+            mountPath: {{ include "common.baseHostPath" (printf "/pagestore-%d" $i) }}
+          {{- end }}
+          {{- end }}
+      {{- end }}
+      {{- if $workerConfig.initContainers }}
+      {{- toYaml $workerConfig.initContainers | trim | nindent 6 }}
+      {{- end }}
+      {{- if .Values.etcd.enabled }}
+      - name: wait-etcd
+        image: {{ .Values.image }}:{{ .Values.imageTag }}
+        {{- if $workerConfig.resources }}
+        resources:
+          {{- toYaml $workerConfig.resources | trim | nindent 10 }}
+        {{- end }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - until nc -z {{ .Release.Name }}-etcd 2379;
+            do sleep 2;
+            done
+      {{- end }}
+      {{- if .Values.fdb.enabled }}
+      - name: wait-fdb
+        image: {{ .Values.image }}:{{ .Values.imageTag }}
+        {{- if $workerConfig.resources }}
+        resources:
+          {{- toYaml $workerConfig.resources | trim | nindent 10 }}
+        {{- end }}
+        command: [ "/bin/sh", "-c" ]
+        args:
+          - until [ -s "{{ $fdbDirPath }}/fdb.cluster" ];
+            do sleep 2;
+            done
+        volumeMounts:
+          - name: fdb-config
+            mountPath: {{ $fdbDirPath }}
+            readOnly: true
+      {{- end }}
+      {{- if not (hasKey .Values.properties "alluxio.license") }}
+      - name: wait-license
+        image: {{ .Values.image }}:{{ .Values.imageTag }}
+        {{- if $workerConfig.resources }}
+        resources:
+          {{- toYaml $workerConfig.resources | trim | nindent 10 }}
+        {{- end }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - while alluxio license show 2>&1 | grep 'No valid license provided';
+            do sleep 2;
+            done
+        volumeMounts:
+          - name: configs
+            mountPath: {{ $alluxioWorkerConfDir }}
+      {{- end }}
+      containers:
+        - name: alluxio-worker
+          image: {{ .Values.image }}:{{ .Values.imageTag }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- if $workerConfig.resources }}
+          resources:
+            {{- toYaml $workerConfig.resources | trim | nindent 12 }}
+          {{- end }}
+          command: ["tini", "-g", "--"]
+          args: ["alluxio", "process", "start", "worker", "--direct", "--console-log"]
+          env:
+          - name: ALLUXIO_WORKER_HOSTNAME
+            valueFrom:
+              fieldRef:
+                {{- if eq (include "alluxio.hostNetwork" (dict "top" . "component" "worker")) "true" }}
+                fieldPath: status.hostIP
+                {{- else }}
+                fieldPath: status.podIP
+                {{- end }}
+          - name: ALLUXIO_NODE_LABEL
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          {{- range $key, $value := $workerConfig.env }}
+          - name: "{{ $key }}"
+            value: "{{ $value }}"
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: web
+            initialDelaySeconds: {{ $workerConfig.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ $workerConfig.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ $workerConfig.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ $workerConfig.readinessProbe.failureThreshold }}
+            successThreshold: {{ $workerConfig.readinessProbe.successThreshold }}
+          ports:
+          - containerPort: {{ .Values.worker.ports.pysdk }}
+            name: pysdk
+          - containerPort: {{ .Values.worker.ports.s3https }}
+            name: s3https
+          - containerPort: {{ .Values.worker.ports.s3 }}
+            name: s3
+          - containerPort: {{ .Values.worker.ports.rpc }}
+            name: rpc
+          - containerPort: {{ .Values.worker.ports.web }}
+            name: web
+          volumeMounts:
+            - name: configs
+              mountPath: {{ $alluxioWorkerConfDir }}
+            {{- if or (eq .Values.worker.pagestore.type "persistentVolumeClaim") (eq .Values.worker.pagestore.type "hostPath") }}
+              {{- range $i, $size := splitList "," $workerConfig.pagestore.size }}
+            - name: pagestore-{{ $i }}
+              mountPath: {{ include "common.baseHostPath" (printf "/pagestore-%d" $i) }}
+              {{- end }}
+            {{- else }}
+            - name: pagestore
+              mountPath: {{ include "common.baseHostPath" "/pagestore-0" }}
+            {{- end }}
+            - name: metastore
+              mountPath: {{ $alluxioWorkerMetastorePath }}
+            {{- if not .Values.worker.useExternalId }}
+            - name: sys-info
+              mountPath: {{ $alluxioWorkerSysInfoDirPath }}
+            {{- end }}
+            {{- if .Values.logPersistence }}
+            - name: logs
+              mountPath: {{ $alluxioWorkerLogDir }}
+            {{- end }}
+            {{- if and $authConfig.authentication.enabled (eq $authConfig.authentication.type "oidc") $authConfig.authentication.oidc.jwksConfigMapName }}
+            - name: jwks-configmap
+              mountPath: {{ $alluxioWorkerOidcDir }}
+            {{- end }}
+            {{- if .Values.fdb.enabled }}
+            - name: fdb-config
+              mountPath: {{ $fdbDirPath }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.secrets }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.secrets.worker "readOnly" true) | indent 12 }}
+            {{- end }}
+            {{- if .Values.configMaps }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.configMaps.worker "readOnly" true) | indent 12 }}
+            {{- end }}
+            {{- if .Values.hostPaths }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.hostPaths.worker "readOnly" false) | indent 12 }}
+            {{- end }}
+            {{- if .Values.pvcMounts }}
+            {{- include "common.volumeMounts" (dict "volumeMounts" .Values.pvcMounts.worker "readOnly" false) | indent 12 }}
+            {{- end }}
+      restartPolicy: Always
+      volumes:
+        - name: configs
+          configMap:
+            name: {{ $fullName }}-alluxio-conf{{ $nameSuffix }}
+        {{- if eq .Values.worker.pagestore.type "hostPath" }}
+          {{- range $i, $path := splitList "," $workerConfig.pagestore.hostPath }}
+        - name: pagestore-{{ $i }}
+          hostPath:
+            path: {{ $path }}
+            type: DirectoryOrCreate
+          {{- end }}
+        {{- else if and (not $isStatefulSet) (eq .Values.worker.pagestore.type "persistentVolumeClaim") }}
+          {{- range $i, $size := splitList "," $workerConfig.pagestore.size }}
+        - name: pagestore-{{ $i }}
+          persistentVolumeClaim:
+            claimName: {{ include "alluxio.getPvcName" (dict "prefix" $fullName "component" "pagestore") }}-{{ $i }}
+          {{- end }}
+        {{- else if eq .Values.worker.pagestore.type "emptyDir" }}
+        {{- $totalStorage := include "alluxio.calculateTotalStorage" (dict "size" $workerConfig.pagestore.size "reservedSize" $workerConfig.pagestore.reservedSize ) }}
+        - name: pagestore
+          emptyDir:
+            sizeLimit: {{ $totalStorage }}
+        {{- end }}
+        {{- if eq .Values.worker.metastore.type "hostPath" }}
+        - name: metastore
+          hostPath:
+            path: {{ $workerConfig.metastore.hostPath }}
+            type: DirectoryOrCreate
+        {{- else if and (not $isStatefulSet) (eq .Values.worker.metastore.type "persistentVolumeClaim") }}
+        - name: metastore
+          persistentVolumeClaim:
+            claimName: {{ include "alluxio.getPvcName" (dict "prefix" $fullName "component" "metastore") }}
+        {{- else if eq .Values.worker.metastore.type "emptyDir" }}
+        - name: metastore
+          emptyDir: {}
+        {{- end }}
+        {{- if not .Values.worker.useExternalId }}
+          {{- if eq .Values.worker.systemInfo.type "hostPath" }}
+        - name: sys-info
+          hostPath:
+            path: {{ $workerConfig.systemInfo.hostPath }}
+            type: DirectoryOrCreate
+          {{- else if and (not $isStatefulSet) (eq .Values.worker.systemInfo.type "persistentVolumeClaim") }}
+        - name: sys-info
+          persistentVolumeClaim:
+            claimName: {{ include "alluxio.getPvcName" (dict "prefix" (include "common.fullname" .) "component" "worker-sysinfo") }}
+          {{- else if eq .Values.worker.systemInfo.type "emptyDir" }}
+        - name: sys-info
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- if .Values.logPersistence }}
+          {{- if eq .Values.worker.log.type "hostPath" }}
+        - name: logs
+          hostPath:
+            path: {{ $workerConfig.log.hostPath }}
+            type: DirectoryOrCreate
+          {{- else if and (not $isStatefulSet) (eq .Values.worker.log.type "persistentVolumeClaim") }}
+        - name: logs
+          persistentVolumeClaim:
+            claimName: {{ include "alluxio.getPvcName" (dict "prefix" (include "common.fullname" .) "component" "worker-log") }}
+          {{- else if eq .Values.worker.log.type "emptyDir" }}
+        - name: logs
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- if .Values.fdb.enabled }}
+        - name: fdb-config
+          configMap:
+            name: {{ include "common.fullname" . }}-fdb-meta-config
+            items:
+            - key: cluster-file
+              path: fdb.cluster
+        {{- end }}
+        {{- if .Values.secrets }}
+        {{- include "common.secretVolumes" .Values.secrets.worker | indent 8 }}
+        {{- end }}
+        {{- if .Values.configMaps }}
+        {{- include "common.configMapVolumes" .Values.configMaps.worker | indent 8 }}
+        {{- end }}
+        {{- if .Values.hostPaths }}
+        {{- include "common.hostPathVolumes" .Values.hostPaths.worker | indent 8 }}
+        {{- end }}
+        {{- if .Values.pvcMounts }}
+        {{- include "common.pvcVolumes" .Values.pvcMounts.worker | indent 8 }}
+        {{- end }}
+        {{- if and $authConfig.authentication.enabled (eq $authConfig.authentication.type "oidc") $authConfig.authentication.oidc.jwksConfigMapName }}
+        - name: jwks-configmap
+          configMap:
+            name: {{ $authConfig.authentication.oidc.jwksConfigMapName }}
+        {{- end }}
+  {{- if $isStatefulSet }}
+  volumeClaimTemplates:
+    {{- if eq .Values.worker.pagestore.type "persistentVolumeClaim" }}
+      {{- range $i, $size := splitList "," $workerConfig.pagestore.size }}
+        {{- $totalStorage := include "alluxio.calculateTotalStorage" (dict "size" $size "reservedSize" $workerConfig.pagestore.reservedSize ) }}
+    - metadata:
+        name: pagestore-{{ $i }}
+      spec:
+        resources:
+          requests:
+            storage: {{ $totalStorage }}
+        storageClassName: {{ $workerConfig.pagestore.storageClass | quote }}
+        accessModes:
+          - ReadWriteOnce
+      {{- end }}
+    {{- end }}
+    {{- if eq .Values.worker.metastore.type "persistentVolumeClaim" }}
+    - metadata:
+        name: metastore
+      spec:
+        resources:
+          requests:
+            storage: {{ $workerConfig.metastore.size }}
+        storageClassName: {{ $workerConfig.metastore.storageClass | quote }}
+        accessModes:
+          - ReadWriteOnce
+    {{- end }}
+    {{- if and (not .Values.worker.useExternalId) (eq .Values.worker.systemInfo.type "persistentVolumeClaim") }}
+    - metadata:
+        name: sys-info
+      spec:
+        resources:
+          requests:
+            storage: {{ $workerConfig.systemInfo.size }}
+        storageClassName: {{ $workerConfig.systemInfo.storageClass | quote }}
+        accessModes:
+          - ReadWriteOnce
+    {{- end }}
+    {{- if .Values.logPersistence }}
+    {{- if eq .Values.worker.log.type "persistentVolumeClaim" }}
+    - metadata:
+        name: logs
+      spec:
+        resources:
+          requests:
+            storage: {{ $workerConfig.log.size }}
+        storageClassName: {{ $workerConfig.log.storageClass | quote }}
+        accessModes:
+          - ReadWriteOnce
+    {{- end }}
+    {{- end }}
+  {{- end -}}
+{{- end -}}
+
+{{- if not .Values.workerGroups }}
+  {{- include "alluxio.worker.deployment" (dict
+        "workerConfig" .Values.worker
+        "Release" .Release
+        "Chart" .Chart
+        "Values" .Values) | nindent 0 }}
+{{- else }}
+  {{- range $i, $group := .Values.workerGroups }}
+    {{- $workerConfig := mergeOverwrite (deepCopy $.Values.worker) $group.worker }}
+    {{- include "alluxio.worker.deployment" (dict
+        "nameSuffix" (printf "-group-%d" $i)
+        "additionalPodLabels" (dict "apps.alluxio.com/worker-group" (printf "%d" $i))
+        "workerConfig" $workerConfig
+        "Release" $.Release
+        "Chart" $.Chart
+        "Values" $.Values) | nindent 0 }}
+---
+  {{- end }}
+{{- end }}

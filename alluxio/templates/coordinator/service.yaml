@@ -1,0 +1,41 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $fullName := include "common.fullname" . }}
+
+{{ include "common.template.service" (dict
+    "name" (printf "%s-coordinator-svc" $fullName)
+    "component" "coordinator"
+    "serviceValues" (merge (dict "ports" .Values.coordinator.ports) .Values.coordinator.service)
+    "Release" .Release
+    "Chart" .Chart
+    "Values" .Values
+) | indent 0 }}
+{{- if le (int .Values.coordinator.count) 1 }}
+---
+{{ include "common.template.service" (dict
+    "name" (printf "%s-coordinator-0" $fullName)
+    "component" "coordinator"
+    "serviceValues" (dict "headless" true "ports" .Values.coordinator.ports)
+    "Release" .Release
+    "Chart" .Chart
+    "Values" .Values
+) | indent 0 }}
+{{- end }}
+---
+{{ include "common.template.service" (dict
+    "name" (printf "%s-coordinator" $fullName)
+    "component" "coordinator"
+    "serviceValues" (dict "headless" true "ports" .Values.coordinator.ports)
+    "Release" .Release
+    "Chart" .Chart
+    "Values" .Values
+) | indent 0 }}

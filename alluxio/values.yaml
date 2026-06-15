@@ -1,0 +1,698 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+# The following value should not be modified in the usual case.
+nameOverride: ""
+
+## Common ##
+
+# Docker Image
+image: alluxio/alluxio
+imageTag: latest
+imagePullPolicy: IfNotPresent
+
+# Image Pull Secrets
+# A list of name of the secrets for the pods to pull images if needed.
+# The secrets need to be created externally from this Helm chart. Format:
+# imagePullSecrets:
+#   - ecr
+#   - dev
+imagePullSecrets:
+
+# Site properties for all Alluxio components
+properties: {}
+
+# addtional log4j logger levels
+# Example:
+# loggers:
+#   alluxio.security: debug
+loggers: {}
+
+# Security Context, except for Alluxio Fuse
+# Fuse will use user 0
+user: 1000
+group: 1000
+fsGroup: 1000
+
+# Whether using hostNetwork for all Alluxio pods
+hostNetwork: false
+
+# If hostNetwork is false, dnsPolicy defaults to ClusterFirst.
+# If hostNetwork is true, dnsPolicy defaults to ClusterFirstWithHostNet.
+# Use this property to override the default value.
+dnsPolicy:
+
+# Service Account
+# If not specified, 'default' ServiceAccount of the namespace shall be used for all Alluxio pods
+serviceAccountName:
+
+# HostAliases is an optional list of hostnames and IPs that will be injected into all pods,
+# for providing the mapping between hostnames and IPs of services not in the K8s cluster, like HDFS.
+# Example:
+# hostAliases:
+#   - ip: "192.168.0.1"
+#     hostnames:
+#       - "example1.com"
+#       - "example2.com"
+hostAliases:
+
+# Labels attached to all components of Alluxio. Format:
+# podLabels:
+#   <label key1>: <label value1>
+#   <label key2>: <label value2>
+podLabels:
+# BREAKING CHANGES(since 2.x): changed the node selector
+# Use this switch to include the global pod labels in the node selector for back-compatiblity
+usePodLabelsInSelector: false
+
+# Use labels to run Alluxio on a subset of the K8s nodes. Format:
+# nodeSelector:
+#   <lable key1>: <label value1>
+#   <label key2>: <label value2>
+nodeSelector:
+
+# A list of K8s Node taints to allow scheduling on. Format:
+# tolerations:
+#   - key: <key>
+#     operator: ["Equal" | "Exists"]
+#     value: <value>
+#     effect: ["NoSchedule" | "NoExecute" | "PreferNoSchedule"]
+tolerations:
+
+# JVM options common to all Alluxio components
+jvmOptions:
+
+## Mounts ##
+
+# Whether to use external storage to persist Alluxio log.
+logPersistence: true
+
+# Mount Persistent Volume Claims, ConfigMaps, and Secrets into different Alluxio components.
+# Format:
+# [hostPaths | pvcMounts | configMaps | secrets]:
+#  coordinator: # Mounted into Alluxio coordinator container(s)
+#    <hostPath/name of PVC/ConfigMap/Secret/>: <mountPath>
+#  worker: # Mounted into Alluxio worker container(s)
+#    <hostPath/name of PVC/ConfigMap/Secret>: <mountPath>
+#  fuse: # Mounted into Alluxio fuse container(s)
+#    <hostPath/name of PVC/ConfigMap/Secret>: <mountPath>
+hostPaths:
+
+pvcMounts:
+
+configMaps:
+
+secrets:
+
+## Alluxio Coordinator ##
+
+coordinator:
+  count: 1
+  log:
+    # Volume type for coordinator logs. Can be persistentVolumeClaim, hostPath, or emptyDir.
+    type: hostPath
+    # Size of the log. Required for volume type of persistentVolumeClaim, ignored otherwise
+    size: 256Mi
+    # Required for volume type of hostPath, ignored otherwise
+    hostPath: /mnt/alluxio/logs/coordinator
+    # Required for volume type of persistentVolumeClaim, ignored otherwise
+    storageClass: "standard"
+  # Metastore configures ROCKS DB to store metadata on coordinator
+  metastore:
+    # Type of the volume for Alluxio worker Metastore. Can be persistentVolumeClaim or hostPath.
+    type: hostPath
+    # Size of the metastore. Required for volume type of persistentVolumeClaim, ignored otherwise
+    size: 4Gi
+    # Required for volume type of hostPath, ignored otherwise
+    hostPath: /mnt/alluxio/metastore
+    # Required for volume type of persistentVolumeClaim, ignored otherwise
+    storageClass: "standard"
+  # Extra environment variables for Alluxio coordinator pods. Format:
+  # env:
+  #   <key1>: <value1>
+  #   <key2>: <value2>
+  env:
+  # A list of JVM options specific to Alluxio coordinator
+  jvmOptions:
+    - -Xmx4g
+    - -Xms4g
+    - -XX:MaxDirectMemorySize=4g
+  # Named ports in Alluxio coordinator
+  ports:
+    rpc: 19998
+    web: 19999
+  # Configure the exposed service of Alluxio coordinator
+  service:
+    # Service type for coordinator. Can be ClusterIP, NodePort, LoadBalancer, or ExternalName
+    type: ClusterIP
+    # (ClusterIP) Whether allocates a cluster ip for the service. true means skipping the cluster ip
+    headless: false
+    # (NodePort) Map the exposed ports to node ports
+    nodePorts: {}
+    # (LoadBalancer) Set the allow ranges for load balancer
+    loadBalancerSourceRanges: []
+    # (ExternalName) Set the external DNS name
+    externalName:
+    # Specify external IPs for any service type
+    externalIPs: []
+    # Additional annotations for coordinator Service
+    annotations: {}
+  # Additional nodeSelector only for scheduling Alluxio coordinator
+  nodeSelector: {}
+  # Additional annotations for Alluxio coordinator
+  podAnnotations: {}
+  # Schedule Alluxio coordinator with affinity.
+  affinity: {}
+  # Additional tolerations only for scheduling Alluxio coordinator
+  tolerations: []
+  # Priority class name to control the scheduling of Alluxio coordinator
+  priorityClassName:
+  # Resources allocated to the containers running Alluxio coordinator
+  resources:
+    limits:
+      cpu: "1"
+      memory: "10Gi"
+    requests:
+      cpu: "1"
+      memory: "8Gi"
+  # Probes that do health checks on containers
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 1
+    failureThreshold: 3
+    successThreshold: 1
+  hostNetwork:
+  dnsPolicy:
+
+## Alluxio Worker ##
+
+worker:
+  # Type of the worker deployment: Deployment or StatefulSet
+  type: StatefulSet
+  # Number of workers to launch
+  count: 1
+  # Specify worker id with the kubernetes information, to make the worker keep the consistent id
+  # even during migration. The option must be used with StatefulSet type.
+  useExternalId: false
+  systemInfo:
+    # Volume type for worker system information. Can be persistentVolumeClaim, hostPath, or emptyDir.
+    type: hostPath
+    # Size of the systemInfo. Required for volume type of persistentVolumeClaim, ignored otherwise
+    size: 256Mi
+    # Required for volume type of hostPath, ignored otherwise
+    hostPath: /mnt/alluxio/system-info
+    # Required for volume type of persistentVolumeClaim, ignored otherwise
+    storageClass: "standard"
+  log:
+    # Volume type for worker logs. Can be persistentVolumeClaim, hostPath, or emptyDir.
+    type: hostPath
+    # Size of the log. Required for volume type of persistentVolumeClaim, ignored otherwise
+    size: 256Mi
+    # Required for volume type of hostPath, ignored otherwise
+    hostPath: /mnt/alluxio/logs/worker
+    # Required for volume type of persistentVolumeClaim, ignored otherwise
+    storageClass: "standard"
+  # Pagestore volume for Alluxio workers to store cached data.
+  pagestore:
+    # Type of the volume for Alluxio worker page store. Can be persistentVolumeClaim, hostPath, or emptyDir.
+    type: hostPath
+    # Size of each worker's storage space
+    size: 100Gi
+    # Reserved size for each worker's storage space
+    # default is min of 10% of size and 100Gi
+    reservedSize:
+    # Required for volume type of hostPath, ignored otherwise.
+    # To use multiple paths, separating each path with "," and separating each size with ","
+    hostPath: /mnt/alluxio/pagestore
+    # Required for volume type of persistentVolumeClaim, ignored otherwise
+    storageClass: "standard"
+  # Metastore configures ROCKS DB to store metadata on workers
+  metastore:
+    # Type of the volume for Alluxio worker Metastore. Can be persistentVolumeClaim or hostPath.
+    type: hostPath
+    # Size of the metastore. Required for volume type of persistentVolumeClaim, ignored otherwise
+    size: 256Mi
+    # Required for volume type of hostPath, ignored otherwise
+    hostPath: /mnt/alluxio/metastore
+    # Required for volume type of persistentVolumeClaim, ignored otherwise
+    storageClass: "standard"
+  # Extra environment variables for the Alluxio worker pods. Format:
+  # env:
+  #   <key1>: <value1>
+  #   <key2>: <value2>
+  env:
+  # A list of JVM options specific to Alluxio workers
+  jvmOptions:
+    - -Xmx8g
+    - -Xms8g
+    - -XX:MaxDirectMemorySize=8g
+    - -Dio.netty.tryReflectionSetAccessible=true
+    - -Djava.util.logging.config.class=java.util.logging.ConsoleHandler
+    - -Dcom.aliyun.oss.level=WARNING
+    - --add-opens=java.base/java.nio=ALL-UNNAMED
+  # Named ports in Alluxio workers
+  ports:
+    pysdk: 28080
+    s3https: 29996
+    s3: 29998
+    rpc: 29999
+    web: 30000
+  # Configure the exposed service of Alluxio workers
+  service:
+    # Service type for workers. Can be ClusterIP, NodePort, LoadBalancer, or ExternalName
+    type: ClusterIP
+    # (ClusterIP) Whether allocates a cluster ip for the service. true means skipping the cluster ip
+    headless: false
+    # (NodePort) Map the exposed ports to node ports
+    nodePorts: {}
+    # (LoadBalancer) Set the allow ranges for load balancer
+    loadBalancerSourceRanges: []
+    # (ExternalName) Set the external DNS name
+    externalName:
+    # Specify external IPs for any service type
+    externalIPs: []
+    # Additional annotations for worker Service
+    annotations: {}
+  # Additional nodeSelector only for scheduling Alluxio workers
+  nodeSelector: {}
+  # Additional annotations for Alluxio workers
+  podAnnotations: {}
+  # Schedule Alluxio workers with affinity.
+  affinity: {}
+  # Additional tolerations only for scheduling Alluxio workers
+  tolerations: []
+  # Priority class name to control the scheduling of Alluxio workers
+  priorityClassName: ""
+  # Resources allocated to the containers running Alluxio workers
+  resources:
+    limits:
+      cpu: "10"
+      memory: "20Gi"
+    requests:
+      cpu: "1"
+      memory: "16Gi"
+  # Probes that do health checks on containers
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 1
+    failureThreshold: 3
+    successThreshold: 1
+  # Set to true if each k8s node has only one directory for Alluxio worker storage.
+  limitOneWorkerPerNode: true
+  # Workers always do rolling update. Recreate is not supported.
+  rollingUpdate:
+    # Maximum number of worker pods that can be offline at update time.
+    # Can be percentage or exact number.
+    maxUnavailable: 10%
+    # Maximum number of worker pods that can exceed the desired replicas at update time.
+    # Can be percentage or exact number.
+    maxSurge: 0
+  # Allow users to inject custom init containers before the init containers for waiting.
+  initContainers: []
+  hostNetwork:
+  dnsPolicy:
+
+# WorkerGroups configures heterogeneous configurations for workers. Each group configures separate
+# worker, properties, and other configurations of the worker.
+# The default values of "worker" will be used for each worker group.
+# Known Limitations: following fields are not supported in workerGroups and should not be specified:
+#   - worker.type
+#   - worker.useExternalId
+#   - worker.ports
+#   - worker.pagestore.type
+#   - worker.metastore.type
+#   - worker.log.type
+#   - worker.systemInfo.type
+# Note that if the worker.type is Deployment, the parameters of persistentVolumeClaim/emptyDir
+# are not supported and should not be specified
+workerGroups: []
+
+## Alluxio FUSE ##
+
+# Fuse processes are always run with root user.
+fuse:
+  # Type of the way to deploy fuse processes. Can be csi, or daemonSet
+  type: csi
+  log:
+    # Volume type for worker logs. Can be persistentVolumeClaim, hostPath, or emptyDir.
+    type: hostPath
+    # Size of the log. Required for volume type of persistentVolumeClaim, ignored otherwise
+    size: 256Mi
+    # Required for volume type of hostPath, ignored otherwise
+    hostPath: /mnt/alluxio/logs/fuse
+    # Required for volume type of persistentVolumeClaim, ignored otherwise
+    storageClass: "standard"
+  # Extra environment variables for the Alluxio fuse pods. Format:
+  # env:
+  #   <key1>: <value1>
+  #   <key2>: <value2>
+  env:
+  # A list of JVM options specific to Alluxio Fuse
+  jvmOptions:
+    - -Xmx4g
+    - -Xms4g
+    - -XX:MaxDirectMemorySize=8g
+    - -Dio.netty.tryReflectionSetAccessible=true
+    - -Djava.util.logging.config.class=java.util.logging.ConsoleHandler
+    - -Dcom.aliyun.oss.level=WARNING
+    - --add-opens=java.base/java.nio=ALL-UNNAMED
+  # Named ports in Alluxio workers
+  ports:
+    web: 49999
+  # Additional nodeSelector only for scheduling Alluxio Fuse
+  nodeSelector: {}
+  # Additional annotations for Alluxio Fuse
+  podAnnotations: {}
+  # Schedule Daemonset Alluxio Fuse with affinity.
+  affinity: {}
+  # Additional tolerations only for scheduling Daemonset Alluxio Fuse
+  tolerations: []
+  # Priority class name to control the scheduling of Alluxio Fuse
+  priorityClassName:
+  # Resources allocated to the containers running Alluxio Fuse
+  resources:
+    limits:
+      cpu: "6"
+      memory: "16Gi"
+    requests:
+      cpu: "1"
+      memory: "12Gi"
+  # The path on the host machine for mount Alluxio Fuse
+  hostPathForMount: /mnt/alluxio/fuse
+  # The path on the host machine for data transfer during non-disruptive upgrade
+  hostPathForMigration: /mnt/alluxio/migration
+  # Fuse related mount options
+  mountOptions:
+    - allow_other
+    - kernel_cache
+    - entry_timeout=60
+    - attr_timeout=60
+    - max_background=128
+    - max_idle_threads=128
+  # Mode for csi storage class
+  csiVolumeBindingMode: WaitForFirstConsumer
+  # BREAKING CHANGES(since 3.x): changed the name of csi pvc and storage class
+  # Use this switch to use the old name for back-compatiblity
+  useLegacyCsiName: false
+  # Fuse daemonset update strategy
+  updateStrategy: {}
+  hostNetwork:
+  dnsPolicy:
+  # Per-node-group overrides for CSI fuse pods. Each entry matches nodes by
+  # nodeSelector labels and overrides specific fields from the default fuse config.
+  # Only effective when fuse.type is "csi".
+  # Example:
+  #   overrides:
+  #     - name: high-memory
+  #       nodeSelector:
+  #         node-type: high-memory
+  #       resources:
+  #         limits:
+  #           cpu: "8"
+  #           memory: "32Gi"
+  #         requests:
+  #           cpu: "2"
+  #           memory: "16Gi"
+  #       jvmOptions:
+  #         - -Xmx8g
+  #         - -Xms8g
+  #         - -XX:MaxDirectMemorySize=16g
+  overrides: []
+
+## prometheus ##
+
+prometheus:
+  image: prom/prometheus
+  imageTag: v2.52.0
+  imagePullPolicy: IfNotPresent
+  # Extra environment variables for Prometheus. Format:
+  # env:
+  #   <key1>: <value1>
+  #   <key2>: <value2>
+  env:
+  # Named ports in Prometheus
+  ports:
+    web: 9090
+  # Additional nodeSelector only for scheduling Prometheus
+  nodeSelector: {}
+  # Additional annotations for Prometheus
+  podAnnotations: {}
+  # Schedule Prometheus with affinity.
+  affinity: {}
+  # Additional tolerations only for scheduling Prometheus
+  tolerations: []
+  # Priority class name to control the scheduling of Prometheus
+  priorityClassName:
+  # Resources allocated to the containers running Prometheus
+  resources:
+    limits:
+      cpu: "4"
+      memory: "4G"
+    requests:
+      cpu: "1"
+      memory: "1G"
+  hostPID: false
+  hostNetwork:
+  dnsPolicy:
+  # The prometheus.yaml file path.
+  prometheusConfig:
+    - name: prometheus-config
+      path: /etc/prometheus
+  # Persistence configures the persistence of the Prometheus data.
+  persistence:
+    # Type of the volume for Prometheus. Can be persistentVolumeClaim, hostPath or emptyDir.
+    type: hostPath
+    # Size of the Prometheus. Required for volume type of persistentVolumeClaim, ignored otherwise
+    size: 2Gi
+    # Required for volume type of hostPath, ignored otherwise
+    hostPath: /mnt/prometheus
+    # Required for volume type of persistentVolumeClaim, ignored otherwise
+    storageClass: "standard"
+  retention: 72h
+  remoteRead:
+  # - url:
+  #   readRecent:
+  remoteWrite:
+  # - url:
+  #   queueConfig:
+  #     maxSamplesPerSend:
+  #     capacity:
+  #     maxShards:
+  etcdTls:
+    enabled: false
+    secretName: ""
+    certDir: /etc/certs/etcd
+    certFile:
+    certKeyFile:
+    caFile:
+
+## grafana ##
+
+grafana:
+  enabled: true
+  image: grafana/grafana
+  imageTag: 10.4.5
+  imagePullPolicy: IfNotPresent
+  # Extra environment variables for Grafana. Format:
+  # env:
+  #   <key1>: <value1>
+  #   <key2>: <value2>
+  env:
+    GF_AUTH_BASIC_ENABLED: "true" # Enable authentication
+    GF_AUTH_ANONYMOUS_ENABLED: "false"
+  # Named ports in Grafana
+  ports:
+    web: 3000
+    hostPort: 8080
+  # Additional nodeSelector only for scheduling Prometheus
+  nodeSelector: {}
+  # Schedule Grafana with affinity.
+  affinity: {}
+  # Additional tolerations only for scheduling Grafana
+  tolerations: []
+  # Priority class name to control the scheduling of Grafana
+  priorityClassName:
+  # Resources allocated to the containers running Grafana
+  resources:
+    limits:
+      cpu: "2"
+      memory: "2G"
+    requests:
+      cpu: "0.5"
+      memory: "1G"
+  hostPID: false
+  hostNetwork: false
+  dnsPolicy:
+  # The grafana plugin path config, include datasource path and dashboards path.
+  grafanaConfig:
+    - name: grafana-dashboard-config
+      path: /etc/grafana/provisioning/dashboards
+    - name: grafana-datasource-config
+      path: /etc/grafana/provisioning/datasources
+
+## ETCD cluster ##
+
+# For coordination operation for alluxio components such as
+# worker membership management
+etcd:
+  # by default launch an etcd cluster for all the key features
+  enabled: true
+  autoCompactionMode: periodic
+  autoCompactionRetention: "1h"
+  # enable the prometheus scraping
+  metrics:
+    enabled: true
+  # Disabling all authentication for client-server server-peer
+  # communication as default, to enable: check the settings of values
+  # here : https://github.com/bitnami/charts/blob/main/bitnami/etcd/values.yaml
+  auth:
+    client:
+      enableAuthentication: false
+    peer:
+      enableAuthentication: false
+    rbac:
+      create: false
+    token:
+      enabled: false
+  # Set num of etcd instances, it needs to be an odd number
+  replicaCount: 3
+  # Resources allocated to the containers running ETCD
+  resources:
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+    requests:
+      cpu: "0.5"
+      memory: "0.5Gi"
+  # NodeSelector for scheduling ETCD
+  nodeSelector: {}
+  # Set the anti-affinity to be required by default
+  podAntiAffinityPreset: hard
+  # Override the image repository due to the transition of bitnami
+  image:
+    repository: bitnamilegacy/etcd
+  volumePermissions:
+    enabled: true
+    image:
+      repository: bitnamilegacy/os-shell
+
+## CacheOnly cluster ##
+
+cacheOnly:
+  enabled: false
+  mountPath: "/cache-only"
+
+global:
+  authentication:
+    enabled: false
+    type: oidc
+    oidc:
+      jwksUri:
+      jwksConfigMapName:
+      jwksFilename:
+      aud:
+      tid:
+      nbfCheck: false
+      roleFieldName:
+      groupFieldName:
+      userFieldName:
+
+  authorization:
+    enabled: false
+    type: opa
+    opa:
+      superAdmin:
+      groupAdmin:
+      allowApis:
+      denyApis:
+      components:
+        # gateway config
+        gateway:
+          configMapName:
+          filenames:
+            - opa_auth_policy.rego
+            - opa_data.yaml
+          query: data.opa_auth_policy.allow
+          groups:
+
+gateway:
+  enabled: false
+
+fdb:
+  enabled: false
+  version: 7.3.63
+  imageType: unified
+  mainContainer:
+    imageConfigs:
+      - baseImage: foundationdb/fdb-kubernetes-monitor
+  routing:
+    useDNSInClusterFile: true
+  automationOptions:
+    replacements:
+      enabled: true
+  faultDomain:
+    key: kubernetes.io/hostname
+    valueFrom: spec.nodeName
+  labels:
+    filterOnOwnerReference: false
+    processClassLabels:
+      - foundationdb.org/fdb-process-class
+    processGroupIDLabels:
+      - foundationdb.org/fdb-process-group-id
+  processCounts:
+    cluster_controller: 1
+    log: 3
+    storage: 3
+    stateless: 3
+  processes:
+    general:
+      customParameters: []
+      podTemplate:
+        spec:
+          securityContext:
+            runAsUser: 4059
+            runAsGroup: 4059
+            fsGroup: 4059
+          containers:
+            - name: foundationdb
+              resources:
+                requests:
+                  cpu: "1"
+                  memory: 8Gi
+                limits:
+                  cpu: "1"
+                  memory: 8Gi
+            - name: foundationdb-kubernetes-sidecar
+              resources:
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+      volumeClaimTemplate:
+        spec:
+          storageClassName:
+          resources:
+            requests:
+              storage: 50Gi
+
+oci:
+  image: public.ecr.aws/m3q8r0k4/dodia/alluxio-oci-proxy
+  imageTag: v0.3
+  imagePullPolicy: IfNotPresent
+  nodeSelector: {}
+  upstreamRegistry: alluxio.azurecr.io
+  containerdSetup:
+    image: public.ecr.aws/m3q8r0k4/dodia/alluxio-containerd-action
+    imageTag: v0.1

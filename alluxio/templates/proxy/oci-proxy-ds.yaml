@@ -1,0 +1,122 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $fullName := include "common.fullname" . }}
+{{- $etcdEndpoints := index .Values.properties "alluxio.etcd.endpoints" }}
+{{- if .Values.etcd.enabled }}
+{{- $etcdEndpoints = printf "http://%v-etcd.%v:%v" .Release.Name .Release.Namespace .Values.etcd.service.ports.client }}
+{{- end }}
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $fullName }}-oci-proxy
+  labels:
+    {{- include "common.labels" (dict "component" "oci-proxy" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "common.matchLabels" (dict "component" "oci-proxy" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 6 }}
+      {{- if and (.Values.usePodLabelsInSelector) (.Values.podLabels) }}
+      {{- toYaml .Values.podLabels | trim | nindent 6 }}
+      {{- end }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        {{- include "common.matchLabels" (dict "component" "oci-proxy" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 8 }}
+        {{- if .Values.podLabels }}
+        {{- toYaml .Values.podLabels | trim | nindent 8 }}
+        {{- end }}
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      # Pin the proxy to nodes that also run an Alluxio worker — clients
+      # then talk to the local proxy over loopback, and the proxy reaches
+      # the local worker over loopback too. Adjust this label to match
+      # whatever your cluster uses to mark worker-bearing nodes (e.g.
+      # `app: alluxio-worker`, `alluxio.io/role: worker`, or remove the
+      # selector entirely to run on every node).
+      nodeSelector:
+        {{- if .Values.oci.nodeSelector }}
+        {{- toYaml .Values.oci.nodeSelector | trim | nindent 8  }}
+        {{- end }}
+        {{- if .Values.nodeSelector }}
+        {{- toYaml .Values.nodeSelector | trim | nindent 8  }}
+        {{- end }}
+      containers:
+        - name: alluxio-oci-proxy
+          # Replace with the registry path of the image you built from
+          # ../Dockerfile (build context = openresty-proxy/):
+          #   docker build -f deploy/Dockerfile -t <registry>/alluxio-s3-proxy:<tag> .
+          image: {{ .Values.oci.image }}:{{ .Values.oci.imageTag }}
+          imagePullPolicy: {{ .Values.oci.imagePullPolicy }}
+          ports:
+            - containerPort: 5000
+              hostPort: 5000
+              name: http
+              protocol: TCP
+          env:
+            - name: ALLUXIO_ETCD_URLS
+              value: "{{ $etcdEndpoints }}"
+            - name: ALLUXIO_CLUSTER_NAME
+              value: "{{ .Release.Namespace }}-{{ .Release.Name }}"
+            - name: ALLUXIO_LIB_PATH
+              value: "/usr/local/lib/liballuxio_client.so"
+            - name: ALLUXIO_ETCD_REFRESH_INTERVAL
+              value: "120"
+            - name: OCI_UPSTREAM_REGISTRY
+              value: "{{ .Values.oci.upstreamRegistry }}"
+            - name: ALLUXIO_WORKER_OCI_PORT
+              value: "28080"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          # Sized for a heavy proxy workload — bare-metal observed 8 cores avg
+          # and ~20 cores peak (LOTA reference is 8/20). Tune for your nodes.
+          resources:
+            requests:
+              cpu: "2"
+              memory: "1Gi"
+            limits:
+              cpu: "16"
+              memory: "4Gi"
+          # Optional runtime config override — uncomment together with the
+          # `volumes:` block below to mount your own nginx.conf / alluxio.lua
+          # from a ConfigMap, replacing the image-baked copies. Useful for
+          # tuning without rebuilding the image (e.g. proxy_buffer_size,
+          # KW on/off A/B). See deploy/README.md "Runtime config override".
+          volumeMounts:
+            - name: config
+              mountPath: /opt/openresty-proxy/conf/nginx.conf
+              subPath: nginx.conf
+            - name: config
+              mountPath: /opt/openresty-proxy/lua/alluxio.lua
+              subPath: alluxio.lua
+            - name: config
+              mountPath: /opt/openresty-proxy/lua/oci_proxy.lua
+              subPath: oci_proxy.lua
+      volumes:
+        - name: config
+          configMap:
+            name: alluxio-oci-proxy-config

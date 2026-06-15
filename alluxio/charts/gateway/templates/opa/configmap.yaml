@@ -1,0 +1,41 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $authConfig := include "gateway.authConfig" . | fromYaml }}
+{{- if and $authConfig.authorization.enabled (eq $authConfig.authorization.type "opa") (empty $authConfig.authorization.opa.configMapName) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.fullname" . }}-opa
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+data:
+  opa_data.yaml: |
+    {{- with $authConfig.authorization.opa }}
+    {{- if .superAdmin }}
+    superAdmin: {{ .superAdmin | toYaml | nindent 4 }}
+    {{- end }}
+    {{- if .groupAdmin }}
+    groupAdmin: {{ .groupAdmin | toYaml | nindent 4 }}
+    {{- end }}
+    {{- if .allowApis }}
+    allowApis: {{ .allowApis | toYaml | nindent 4 }}
+    {{- end }}
+    {{- if .denyApis }}
+    denyApis: {{ .denyApis | toYaml | nindent 4 }}
+    {{- end }}
+    {{- if .groups }}
+    groups: {{ .groups | toYaml | nindent 4 }}
+    {{- end }}
+    {{- end }}
+  opa_auth_policy.rego: |
+    {{- (tpl (.Files.Get "resources/opa_auth_policy.rego") $authConfig) | nindent 4 }}
+{{- end }}

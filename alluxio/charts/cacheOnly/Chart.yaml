@@ -1,0 +1,13 @@
+apiVersion: v1
+description: Empower AI builders with a fast, scalable, and reliable compute & data
+  infrastructure.
+home: https://www.alluxio.io/
+maintainers:
+- email: jiacheng@alluxio.com
+  name: Jiacheng Liu
+- email: jiasen.sun@alluxio.com
+  name: Jiasen Sun
+- email: kai.zhang@alluxio.com
+  name: Kai Zhang
+name: cacheOnly
+version: 3.6.1

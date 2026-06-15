@@ -1,0 +1,35 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- if .Values.fdb.enabled }}
+{{- $fdbConfig := omit .Values.fdb "enabled" }}
+{{- $serviceAccountName := printf "%s-fdb" (include "common.fullname" .) }}
+
+{{- /* Construct the PodTemplate Spec dictionary */ -}}
+{{- $specDict := dict "serviceAccountName" $serviceAccountName }}
+{{- if .Values.imagePullSecrets }}
+  {{- $pullSecrets := include "common.imagePullSecrets" .Values | fromYaml }}
+  {{- $_ := set $specDict "imagePullSecrets" $pullSecrets.imagePullSecrets }}
+{{- end }}
+
+{{- /* Create an overlay to safely inject the spec into the general process group */ -}}
+{{- $overlay := dict "processes" (dict "general" (dict "podTemplate" (dict "spec" $specDict))) }}
+{{- $finalConfig := merge (deepCopy $fdbConfig) $overlay }}
+apiVersion: apps.foundationdb.org/v1beta2
+kind: FoundationDBCluster
+metadata:
+  name: {{ include "common.fullname" . }}-fdb-meta
+  labels:
+    {{- include "common.labels" (dict "component" "fdb" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 4 }}
+    foundationdb.org/fdb-cluster-name: {{ include "common.fullname" . }}-fdb-meta
+spec:
+  {{- $finalConfig | toYaml | nindent 2 }}
+{{- end }}

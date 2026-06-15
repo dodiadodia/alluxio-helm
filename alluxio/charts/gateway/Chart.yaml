@@ -1,0 +1,16 @@
+apiVersion: v2
+dependencies:
+- name: common
+  repository: file://../common
+  version: 3.6.1
+description: A Helm chart for gateway
+home: https://www.alluxio.io/
+maintainers:
+- email: jiacheng@alluxio.com
+  name: Jiacheng Liu
+- email: jiasen.sun@alluxio.com
+  name: Jiasen Sun
+- email: kai.zhang@alluxio.com
+  name: Kai Zhang
+name: gateway
+version: 3.6.1

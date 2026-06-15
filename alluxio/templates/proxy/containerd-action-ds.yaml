@@ -1,0 +1,70 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $fullName := include "common.fullname" . }}
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $fullName }}-containerd-setup
+  labels:
+    {{- include "common.labels" (dict "component" "oci-proxy" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "common.matchLabels" (dict "component" "oci-proxy" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 6 }}
+      {{- if and (.Values.usePodLabelsInSelector) (.Values.podLabels) }}
+      {{- toYaml .Values.podLabels | trim | nindent 6 }}
+      {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "common.matchLabels" (dict "component" "oci-proxy" "Release" .Release "Chart" .Chart "Values" .Values) | nindent 8 }}
+        {{- if .Values.podLabels }}
+        {{- toYaml .Values.podLabels | trim | nindent 8 }}
+        {{- end }}
+    spec:
+      nodeSelector:
+        {{- if .Values.oci.nodeSelector }}
+        {{- toYaml .Values.oci.nodeSelector | trim | nindent 8  }}
+        {{- end }}
+        {{- if .Values.nodeSelector }}
+        {{- toYaml .Values.nodeSelector | trim | nindent 8  }}
+        {{- end }}
+      hostNetwork: true
+      hostPID: true
+      containers:
+      - image: {{ .Values.oci.containerdSetup.image }}:{{ .Values.oci.containerdSetup.imageTag }}
+        imagePullPolicy: Always
+        name: host-setup-alluxio
+        args: [ "setup" ]
+        resources:
+          requests:
+            cpu: 0.1
+            memory: 64Mi
+          limits:
+            cpu: 0.1
+            memory: 64Mi
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: actions
+          mountPath: "/opt/actions"
+        - name: hostmount
+          mountPath: "/mnt/actions"
+      volumes:
+      - name: hostmount
+        hostPath:
+          path: /opt/actions
+          type: DirectoryOrCreate
+      - name: actions
+        configMap:
+          name: host-setup-actions-alluxio

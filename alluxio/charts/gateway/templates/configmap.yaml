@@ -1,0 +1,89 @@
+#
+# The Alluxio Open Foundation licenses this work under the Apache License, version 2.0
+# (the "License"). You may not use this work except in compliance with the License, which is
+# available at www.apache.org/licenses/LICENSE-2.0
+#
+# This software is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+# either express or implied, as more fully set forth in the License.
+#
+# See the NOTICE file distributed with this work for information regarding copyright ownership.
+#
+
+{{- $authConfig := include "gateway.authConfig" . | fromYaml }}
+{{- $gatewayLogDir := include "common.basePath" "/logs" }}
+{{- $gatewayConfDir := include "common.basePath" "/conf" }}
+
+{{- if and $authConfig.authentication.enabled (eq $authConfig.authentication.type "oidc") }}
+  {{- if and $authConfig.authentication.oidc.jwksConfigMapName $authConfig.authentication.oidc.jwksUri }}
+    {{- fail "Error: Both 'jwksConfigMapName' and 'jwksUri' cannot be configured at the same time." }}
+  {{- else if and (not $authConfig.authentication.oidc.jwksConfigMapName) (not $authConfig.authentication.oidc.jwksUri) }}
+    {{- fail "Error: 'jwksConfigMapName' and 'jwksUri' cannot both be empty when authentication is enabled." }}
+  {{- end }}
+{{- end }}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.fullname" . }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+data:
+  gateway.yaml: |
+    listenOn: ":{{ .Values.service.ports.api }}"
+    {{- $tlsApiPort := (index .Values.service.ports "tls-api") }}
+    {{- if $tlsApiPort }}
+    tlsListenOn: ":{{ $tlsApiPort }}"
+    {{- end }}
+    clusters:
+{{- range .Values.dispatch.clusters }}
+      - name: {{ .name }}
+        addr: {{ .addr }}
+{{- end }}
+    tls:
+      enabled: {{ .Values.tls.enabled }}
+      {{- if .Values.tls.enabled }}
+      certFile: {{ .Values.tls.certDir }}/{{ .Values.tls.certFile }}
+      keyFile: {{ .Values.tls.certDir }}/{{ .Values.tls.certKeyFile }}
+      caFile: {{ .Values.tls.certDir }}/{{ .Values.tls.caFile }}
+      mtlsEnabled: {{ .Values.tls.mtlsEnabled }}
+      {{- end }}
+    dispatch:
+      type: {{ .Values.dispatch.type }}
+    authentication:
+      enabled: {{ $authConfig.authentication.enabled }}
+      {{- if $authConfig.authentication.enabled }}
+      type: {{ $authConfig.authentication.type }}
+      {{- if or (eq $authConfig.authentication.type "oidc") (eq $authConfig.authentication.type "OIDC") }}
+      oidc:
+        aud: {{ $authConfig.authentication.oidc.aud }}
+        tid: {{ $authConfig.authentication.oidc.tid }}
+        nbfCheck: {{ $authConfig.authentication.oidc.nbfCheck }}
+        roleFieldName: {{ $authConfig.authentication.oidc.roleFieldName }}
+        groupFieldName: {{ $authConfig.authentication.oidc.groupFieldName }}
+        userFieldName: {{ $authConfig.authentication.oidc.userFieldName }}
+      {{- if $authConfig.authentication.oidc.jwksConfigMapName }}
+        jwksUri: file://{{ $gatewayConfDir }}/{{ $authConfig.authentication.oidc.jwksFilename }}
+      {{- else }}
+        jwksUri: {{ $authConfig.authentication.oidc.jwksUri }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
+    authorization:
+      enabled: {{ $authConfig.authorization.enabled }}
+      {{- if $authConfig.authorization.enabled }}
+      type: {{ $authConfig.authorization.type }}
+      {{- if and (eq $authConfig.authorization.type "opa") }}
+      opa:
+        policyFiles:
+        {{- range $authConfig.authorization.opa.filenames }}
+        - {{ $gatewayConfDir }}/{{ . }}
+        {{- end }}
+        query: {{ $authConfig.authorization.opa.query }}
+      {{- end }}
+      {{- end }}
+    auditLog:
+      enabled: {{ .Values.auditLog.enabled }}
+      path: {{ $gatewayLogDir }}/audit/gateway-audit.log
+    log:
+      level: {{ .Values.log.level }}
+      path: {{ $gatewayLogDir }}/gateway.log

@@ -1,0 +1,29 @@
+apiVersion: v2
+dependencies:
+- name: common
+  repository: file://../common
+  version: 3.6.1
+- condition: etcd.enabled
+  name: etcd
+  repository: https://charts.bitnami.com/bitnami
+  version: 9.0.5
+- condition: cacheOnly.enabled
+  name: cacheOnly
+  repository: file://../cacheOnly
+  version: 3.6.1
+- condition: gateway.enabled
+  name: gateway
+  repository: file://../gateway
+  version: 3.6.1
+description: Empower AI builders with a fast, scalable, and reliable compute & data
+  infrastructure.
+home: https://www.alluxio.io/
+maintainers:
+- email: jiacheng@alluxio.com
+  name: Jiacheng Liu
+- email: jiasen.sun@alluxio.com
+  name: Jiasen Sun
+- email: kai.zhang@alluxio.com
+  name: Kai Zhang
+name: alluxio
+version: 3.6.1
