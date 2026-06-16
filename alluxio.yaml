@@ -2,7 +2,6 @@ image: public.ecr.aws/m3q8r0k4/dodia/alluxio-enterprise
 imageTag: 3.x-17.0.0-oci-fix10
 properties:
   alluxio.license: "eyJsaWNlbnNlSWQiOiJncWU0dGo3ZGp2YXd5Z3FsIiwicHJvZHVjdGlvbklkIjoiaW50ZXJuYWwiLCJleHBpcmF0aW9uRGF0ZSI6IjIwMjYtMDYtMjBUMDA6MDA6MDBaIiwibGljZW5zZVZlcnNpb24iOjEsInNlY3JldCI6IktmTFRXTktKbG5WSFFYdXR6bFFOUDZiQ1JxakV5N2puYXlCNitmS0tZMUU4Z3RxYm9DWk5kcjZCRW90S0dXblciLCJzZWNyZXRBZXNDYmNQa2NzNSI6IlluMWpCNEFmMUNKdjFSeEE0QjFrTHFjY1E1VXg3MldQYkg4NHBpbHBGUkNQWGhiQ1piNi9DY0RZOCs4T2hnc25VYzNyNXBKdE54WHZ3azlTZlZrQU93PT0iLCJjb25zdHJhaW50cyI6eyJwZXJQcm9jZXNzIjp7fSwicmVnaXN0cmF0aW9uIjp7Im1heFByb2Nlc3NDb3VudCI6MTAwfX0sImJvdW5kQ2x1c3RlciI6IiJ9"
-
   alluxio.worker.oci.registry.enabled: "true" # OCI 加速总开关
   alluxio.worker.http.server.port: "28080" # Worker OCI 服务端口
   alluxio.worker.oci.registry.upstream.allowlist: "alluxio.azurecr.io" # 客户修改：允许代理的 ACR 域名，逗号分隔
@@ -97,7 +96,7 @@ workerGroups:
         alluxio.io/worker: enabled
       tolerations:
         - operator: Exists
-      count: 1
+      count: 2
       pagestore:
         hostPath: /mnt/alluxio/pagestore/data,/mnt/disk2/pagestore/data,/mnt/disk3/pagestore/data
         size: 350Gi,350Gi,350Gi
@@ -118,7 +117,7 @@ fuse:
 
 oci:
   image: public.ecr.aws/m3q8r0k4/dodia/alluxio-oci-proxy
-  imageTag: v0.6
+  imageTag: v1.0
   nodeSelector:
     alluxio.io/oci: "enabled"
   upstreamRegistry: alluxio.azurecr.io

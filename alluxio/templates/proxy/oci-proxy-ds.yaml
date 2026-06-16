@@ -101,22 +101,3 @@ spec:
             limits:
               cpu: "16"
               memory: "4Gi"
-          # Optional runtime config override — uncomment together with the
-          # `volumes:` block below to mount your own nginx.conf / alluxio.lua
-          # from a ConfigMap, replacing the image-baked copies. Useful for
-          # tuning without rebuilding the image (e.g. proxy_buffer_size,
-          # KW on/off A/B). See deploy/README.md "Runtime config override".
-          volumeMounts:
-            - name: config
-              mountPath: /opt/openresty-proxy/conf/nginx.conf
-              subPath: nginx.conf
-            - name: config
-              mountPath: /opt/openresty-proxy/lua/alluxio.lua
-              subPath: alluxio.lua
-            - name: config
-              mountPath: /opt/openresty-proxy/lua/oci_proxy.lua
-              subPath: oci_proxy.lua
-      volumes:
-        - name: config
-          configMap:
-            name: alluxio-oci-proxy-config
