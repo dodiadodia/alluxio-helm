@@ -1,18 +1,17 @@
 image: public.ecr.aws/m3q8r0k4/dodia/alluxio-enterprise
-imageTag: 3.x-17.0.0-oci-fix10
+imageTag: AI-3.9-16.0.0-3-MSFT 
 properties:
-  alluxio.license: "eyJsaWNlbnNlSWQiOiJncWU0dGo3ZGp2YXd5Z3FsIiwicHJvZHVjdGlvbklkIjoiaW50ZXJuYWwiLCJleHBpcmF0aW9uRGF0ZSI6IjIwMjYtMDYtMjBUMDA6MDA6MDBaIiwibGljZW5zZVZlcnNpb24iOjEsInNlY3JldCI6IktmTFRXTktKbG5WSFFYdXR6bFFOUDZiQ1JxakV5N2puYXlCNitmS0tZMUU4Z3RxYm9DWk5kcjZCRW90S0dXblciLCJzZWNyZXRBZXNDYmNQa2NzNSI6IlluMWpCNEFmMUNKdjFSeEE0QjFrTHFjY1E1VXg3MldQYkg4NHBpbHBGUkNQWGhiQ1piNi9DY0RZOCs4T2hnc25VYzNyNXBKdE54WHZ3azlTZlZrQU93PT0iLCJjb25zdHJhaW50cyI6eyJwZXJQcm9jZXNzIjp7fSwicmVnaXN0cmF0aW9uIjp7Im1heFByb2Nlc3NDb3VudCI6MTAwfX0sImJvdW5kQ2x1c3RlciI6IiJ9"
-  alluxio.worker.oci.registry.enabled: "true" # OCI 加速总开关
-  alluxio.worker.http.server.port: "28080" # Worker OCI 服务端口
-  alluxio.worker.oci.registry.upstream.allowlist: "alluxio.azurecr.io" # 客户修改：允许代理的 ACR 域名，逗号分隔
-  alluxio.worker.oci.registry.persistent.cache.enabled: "true" # 持久缓存，重启后不丢失
+  alluxio.worker.oci.registry.enabled: "true" # Enable or disable OCI acceleration
+  alluxio.worker.http.server.port: "28080" # Worker OCI port
+  alluxio.worker.oci.registry.upstream.allowlist: "alluxio.azurecr.io" # Customer-modified: allowed ACR domains for proxying, comma-separated
+  alluxio.worker.oci.registry.persistent.cache.enabled: "true" # Persistent cache, survives restarts
 
-  # === 缓存 TTL（可选，以下为生产推荐默认值） ===
-  alluxio.worker.oci.registry.cache.authz.ttl: "60sec" # 鉴权成功缓存
-  alluxio.worker.oci.registry.cache.authz.negative.ttl: "15sec" # 鉴权失败缓存
-  alluxio.worker.oci.registry.cache.binding.ttl: "10min" # Repo 绑定 + blob 元信息
-  alluxio.worker.oci.registry.cache.tag.soft.ttl: "30sec" # Tag 软过期（到期后台刷新）
-  alluxio.worker.oci.registry.cache.tag.hard.ttl: "5min" # Tag 硬过期（强制重拉）
+  # === Cache TTL (Optional, the following are recommended default values for production) ===
+  alluxio.worker.oci.registry.cache.authz.ttl: "60sec" # Cache for successful authorization
+  alluxio.worker.oci.registry.cache.authz.negative.ttl: "15sec" # Cache for failed authorization
+  alluxio.worker.oci.registry.cache.binding.ttl: "10min" # Repo binding + blob metadata
+  alluxio.worker.oci.registry.cache.tag.soft.ttl: "30sec" # Tag soft expiration (background refresh upon expiry)
+  alluxio.worker.oci.registry.cache.tag.hard.ttl: "5min" # Tag hard expiration (forces re-pull upon expiry)
 
 user: 0
 group: 0
@@ -106,7 +105,7 @@ workerGroups:
         - -XX:MaxDirectMemorySize=16g
       resources:
         limits:
-          cpu: "10"
+          cpu: "12"
           memory: "42Gi"
         requests:
           cpu: "4"
